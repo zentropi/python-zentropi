@@ -1,7 +1,7 @@
-from enum import Enum, auto
+from enum import Enum
+from enum import auto
 
 from zentropi.protocol.frame import Frame
-
 from zentropi.protocol.kind import Kind
 
 
@@ -28,8 +28,8 @@ class BaseProtocol(object):
 
     def _recv_auth(self, frame):
         assert frame.name == 'login'
-        assert 'agent_uuid' in frame.data 
-        assert 'token' in frame.data 
+        assert 'agent_uuid' in frame.data
+        assert 'token' in frame.data
         self._agent_uuid = frame.data['agent_uuid']
         self._token = frame.data['token']
         return (Action.RECV_AUTH, frame)
@@ -42,6 +42,7 @@ class BaseProtocol(object):
 
     def send(self, frame: Frame):
         return (Action.SEND_FRAME, frame)
+
 
 class JSONProtocol(BaseProtocol):
     def parse(self, data: str):
@@ -69,4 +70,3 @@ class BinaryProtocol(BaseProtocol):
     def send_auth(self, agent_uuid, token):
         action, frame = super().send_auth(agent_uuid, token)
         return (action, frame.to_bytes())
-

@@ -6,11 +6,11 @@ from zentropi.protocol.protocol import Action
 from zentropi.protocol.protocol import BinaryProtocol
 from zentropi.protocol.protocol import JSONProtocol
 
+
 def test_client_json_protocol():
     client_protocol = JSONProtocol()
-    server_protocol = JSONProtocol(server=True)
     c_action, c_auth_frame = client_protocol.send_auth('agent-uuid', 'agent-token')
-
+    server_protocol = JSONProtocol(server=True)
     s_action, s_auth_frame = server_protocol.parse(c_auth_frame)
     assert c_action == Action.SEND_FRAME
     assert s_action == Action.RECV_AUTH
