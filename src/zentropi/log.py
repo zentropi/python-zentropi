@@ -1,9 +1,10 @@
 import logging as _logging
 import logging.handlers as _log_handlers
-from pathlib import Path as _Path
 from os import makedirs as _make_directories
-from .symbol import APP_NAME, MB
+from pathlib import Path as _Path
 
+from .symbol import APP_NAME
+from .symbol import MB
 
 _root_logger = _logging.getLogger(APP_NAME)
 _root_logger_configured = False
@@ -12,7 +13,7 @@ logger = _root_logger
 
 def logging_configure(file_path,
                       log_level=_logging.WARNING,
-                      file_size= 10 * MB,
+                      file_size=10 * MB,
                       keep_logs=10):
     global _root_logger_configured
     assert _root_logger_configured is False, 'root_logger is already configured!'
