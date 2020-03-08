@@ -2,21 +2,25 @@ from asyncio import Queue
 
 from zentropi import Frame
 
+from .base import BaseTransport
 
-class QueueTransport(object):
+
+class QueueTransport(BaseTransport):
     def __init__(self):
         self.queue_recv = Queue()
         self.queue_send = Queue()
         self.connected = False
-        self.agent_token = None
+        self.token = None
+        self.endpoint = ''
 
-    async def connect(self, agent_token):
+    async def connect(self, endpoint, token):
         self.connected = True
-        self.agent_token = agent_token
+        self.token = token
+        self.endpoint = endpoint
 
     async def close(self):
         self.connected = False
-        self.agent_token = None
+        self.token = None
 
     async def send(self, frame: Frame) -> None:
         await self.queue_send.put(frame)

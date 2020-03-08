@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from .frame import Frame
 from .kind import Kind
+from .transport.base import BaseTransport
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +25,7 @@ class Agent(object):
         self._handlers_interval = {}
         self._handlers_event = {}
         self._transport = None
+        self._connected = False
 
     def run(self,
             loop: Optional[AbstractEventLoop] = None,
@@ -53,7 +55,8 @@ class Agent(object):
             await shutdown_handler(shutdown_frame)
 
     async def _cancel_spawned_tasks(self):
-        for _, task in self._spawned_tasks.items():
+        for task_id, task in self._spawned_tasks.items():
+            logger.debug(f'Cancelling task {task_id}')
             task.cancel()
 
     async def start(self, shutdown_event: Optional[Event] = None) -> None:
@@ -115,3 +118,34 @@ class Agent(object):
         if not self._transport and _name in self._handlers_event:
             handler = self._handlers_event[_name]
             self.spawn(handler(frame))
+        else:
+            await self._transport.send(frame)
+
+    async def connect(self,
+                      endpoint: str,
+                      token: str,
+                      transport: Optional[BaseTransport] = None):
+        if transport:
+            self._transport = transport
+        elif endpoint.startswith('queue://'):
+            from .transport.queue import QueueTransport
+            self._transport = QueueTransport()
+        else:
+            raise RuntimeError(f'Unable to select a transport for endpoint {endpoint!r}')
+        await self._transport.connect(endpoint, token)
+        self._connected = True
+        self.spawn(self._recv_loop(), name='recv-loop')
+
+    async def close(self):
+        await self._transport.close()
+        self._connected = False
+        self._spawned_tasks['recv-loop'].cancel()
+
+    async def _recv_loop(self):
+        try:
+            while self._connected:
+                frame = await self._transport.recv()
+                handler = self._handlers_event[frame.name]
+                self.spawn(handler(frame))
+        except CancelledError:
+            logger.debug('Receive loop cancelled')
