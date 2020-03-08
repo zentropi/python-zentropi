@@ -28,11 +28,17 @@ class Agent(object):
         self._handlers_event = {}
         self._transport = None
         self._connected = False
+        self._endpoint = ''
+        self._token = ''
 
     def run(self,
+            endpoint: Optional[str] = '',
+            token: Optional[str] = '',
             loop: Optional[AbstractEventLoop] = None,
             shutdown_event: Optional[Event] = None) -> None:
         logger.info(f'Running agent {self.name}')
+        self._endpoint = endpoint
+        self._token = token
         self._loop = loop or asyncio.new_event_loop()
         self._loop.run_until_complete(self.start(shutdown_event))
 
@@ -66,6 +72,8 @@ class Agent(object):
         self.shutdown_event = shutdown_event or Event()
         logger.info(f'Starting agent {self.name}')
         self._running = True
+        if self._endpoint and self._token:
+            await self.connect()
         await self._start_interval_tasks()
         await self._run_startup_handler()
         await self.shutdown_event.wait()
@@ -124,15 +132,19 @@ class Agent(object):
             await self._transport.send(frame)
 
     async def connect(self,
-                      endpoint: str,
-                      token: str,
+                      endpoint: Optional[str] = '',
+                      token: Optional[str] = '',
                       transport: Optional[BaseTransport] = None):
+        endpoint = endpoint or self._endpoint
+        token = token or self._token
         if transport:
             self._transport = transport
         elif endpoint.startswith('queue://'):
             self._transport = QueueTransport()
         elif endpoint.startswith('ws://') or endpoint.startswith('wss://'):
             self._transport = WebsocketTransport()
+        elif self._transport:
+            pass  # Set in run()
         else:
             raise RuntimeError(f'Unable to select a transport for endpoint {endpoint!r}')
         await self._transport.connect(endpoint, token)
