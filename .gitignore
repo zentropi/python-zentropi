@@ -71,3 +71,4 @@ docs/_build
 .mypy_cache/
 
 todo.txt
+_attic/
