@@ -1,26 +1,10 @@
 import json
-from enum import IntEnum
-from typing import Dict, Type
+from typing import Dict
 from typing import Optional
 from uuid import uuid4
 
-
-class Kind(IntEnum):
-    """Kind enumerates frames that serve specific purposes
-    and must be handled differently by instances and agents.
-    """
-    COMMAND = 1
-    EVENT = 2
-
-KIND_VALUES = {
-    int(Kind.COMMAND),
-    int(Kind.EVENT),
-}
-
-KIND_LABELS = {
-    int(Kind.COMMAND): Kind.COMMAND.name,
-    int(Kind.EVENT): Kind.EVENT.name,
-}
+from .kind import KIND_VALUES
+from .kind import Kind
 
 
 class Frame(object):
@@ -62,7 +46,7 @@ class Frame(object):
             raise TypeError(f'Frame.uuid must be string, got {type(self._uuid)}')
         if not self._uuid.strip():
             raise ValueError(f'Frame.uuid must not be empty, got: {self._name!r}')
-        
+
         # data
         if self._data is not None and not isinstance(self._data, dict):
             raise TypeError(f'Frame.data must be dict, got {type(self._data)}')
