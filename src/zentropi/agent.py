@@ -36,27 +36,38 @@ class Agent(object):
         logger.info(f'Stopping agent {self.name}')
         self.shutdown_event.set()
 
+    async def _start_interval_tasks(self):
+        for int_name, int_task in self._handlers_interval.items():
+            self.spawn(int_task(), name=int_name)
+
+    async def _run_startup_handler(self):
+        if 'startup' in self._handlers_event:
+            startup_handler = self._handlers_event['startup']
+            startup_frame = Frame('startup', kind=Kind.EVENT)
+            await startup_handler(startup_frame)
+
+    async def _run_shutdown_handler(self):
+        if 'shutdown' in self._handlers_event:
+            shutdown_handler = self._handlers_event['shutdown']
+            shutdown_frame = Frame('startup', kind=Kind.EVENT)
+            await shutdown_handler(shutdown_frame)
+
+    async def _cancel_spawned_tasks(self):
+        for _, task in self._spawned_tasks.items():
+            task.cancel()
+
     async def start(self, shutdown_event: Optional[Event] = None) -> None:
         self._loop = self._loop or asyncio.get_event_loop()
         self.shutdown_event = shutdown_event or Event()
         logger.info(f'Starting agent {self.name}')
         self._running = True
-        # start interval tasks
-        for int_name, int_task in self._handlers_interval.items():
-            self.spawn(int_task(), name=int_name)
-        if 'startup' in self._handlers_event:
-            startup_handler = self._handlers_event['startup']
-            startup_frame = Frame('startup', kind=Kind.EVENT)
-            await startup_handler(startup_frame)
+        await self._start_interval_tasks()
+        await self._run_startup_handler()
         await self.shutdown_event.wait()
         self._running = False
         logger.info(f'Shutting down agent {self.name}')
-        if 'shutdown' in self._handlers_event:
-            shutdown_handler = self._handlers_event['shutdown']
-            shutdown_frame = Frame('startup', kind=Kind.EVENT)
-            await shutdown_handler(shutdown_frame)
-        for tname, task in self._spawned_tasks.items():
-            task.cancel()
+        await self._run_shutdown_handler()
+        await self._cancel_spawned_tasks()
 
     def spawn(self, coro, name='') -> Tuple[str, Task]:
         async def watch(task_id, coro):
