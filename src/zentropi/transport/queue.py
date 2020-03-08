@@ -1,7 +1,6 @@
 from asyncio import Queue
 
-from zentropi import Frame
-
+from ..frame import Frame
 from .base import BaseTransport
 
 

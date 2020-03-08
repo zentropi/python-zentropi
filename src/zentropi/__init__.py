@@ -5,6 +5,7 @@ from .frame import Frame
 from .kind import Kind
 from .transport.base import BaseTransport
 from .transport.queue import QueueTransport
+from .transport.websocket import WebsocketTransport
 
 __all__ = [
     'Agent',
@@ -12,5 +13,6 @@ __all__ = [
     'Frame',
     'Kind',
     'QueueTransport',
+    'WebsocketTransport',
     '__version__',
 ]

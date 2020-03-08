@@ -93,26 +93,10 @@ async def test_agent_with_queue_transport():
 
 
 @pytest.mark.asyncio
+@pytest.mark.xfail(raises=RuntimeError)
 async def test_agent_with_invalid_endpoint():
     a = Agent('test-agent')
-    exception_caught = False
-
-    @a.on_event('startup')
-    async def startup(frame):  # pragma: no cover
-        try:
-            await a.connect('invalid://', 'test-token')
-        except RuntimeError:
-            nonlocal exception_caught
-            exception_caught = True
-            a.stop()
-
-    asyncio.create_task(a.start())
-
-    for _ in range(3):
-        await asyncio.sleep(0)
-
-    assert a._running is False
-    assert exception_caught is True
+    await a.connect('invalid://', 'test-token')
 
 
 @pytest.mark.asyncio

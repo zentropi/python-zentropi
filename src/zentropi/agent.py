@@ -11,6 +11,8 @@ from uuid import uuid4
 from .frame import Frame
 from .kind import Kind
 from .transport.base import BaseTransport
+from .transport.queue import QueueTransport
+from .transport.websocket import WebsocketTransport
 
 logger = logging.getLogger(__name__)
 
@@ -128,8 +130,9 @@ class Agent(object):
         if transport:
             self._transport = transport
         elif endpoint.startswith('queue://'):
-            from .transport.queue import QueueTransport
             self._transport = QueueTransport()
+        elif endpoint.startswith('ws://') or endpoint.startswith('wss://'):
+            self._transport = WebsocketTransport()
         else:
             raise RuntimeError(f'Unable to select a transport for endpoint {endpoint!r}')
         await self._transport.connect(endpoint, token)
@@ -139,7 +142,8 @@ class Agent(object):
     async def close(self):
         await self._transport.close()
         self._connected = False
-        self._spawned_tasks['recv-loop'].cancel()
+        if 'recv-loop' in self._spawned_tasks:
+            self._spawned_tasks['recv-loop'].cancel()
 
     async def _recv_loop(self):
         try:
@@ -149,3 +153,5 @@ class Agent(object):
                 self.spawn(handler(frame))
         except CancelledError:
             logger.debug('Receive loop cancelled')
+        except ConnectionError:
+            logger.debug('Connection was closed.')
