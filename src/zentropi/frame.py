@@ -1,10 +1,20 @@
+from enum import IntEnum
 from typing import Dict
 from typing import Optional
+from uuid import uuid4
+
+
+class Kind(IntEnum):
+    """Kind enumerates frames that serve specific purposes
+    and must be handled differently by instances and agents.
+    """
+    COMMAND = 1
+    EVENT = 2
 
 
 class Frame(object):
     """Frame contains the information that is sent over wire
-    between Zentropian Instances and Agents.
+    between instances and agents.
     """
     def __init__(self, name: str,
                  uuid: Optional[str] = None,
@@ -14,11 +24,23 @@ class Frame(object):
         """
         Frame constructor.
         """
-        self.name = name
-        self.uuid = uuid
-        self.kind = kind
+        self._name = name
+        self._uuid = uuid or uuid4().hex
+        self._kind = kind or Kind.EVENT
         self._data = data
         self._meta = meta
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def uuid(self):
+        return self._uuid
+
+    @property
+    def kind(self):
+        return self._kind
 
     @property
     def data(self):
@@ -26,20 +48,8 @@ class Frame(object):
             self._data = {}
         return self._data
 
-    @data.setter
-    def data(self, value):
-        if not isinstance(value, dict):
-            raise TypeError('Frame.data must be a dict.')
-        self._data = value
-
     @property
     def meta(self):
         if self._meta is None:
             self._meta = {}
         return self._meta
-
-    @meta.setter
-    def meta(self, value):
-        if not isinstance(value, dict):
-            raise TypeError('Frame.meta must be a dict.')
-        self._meta = value
