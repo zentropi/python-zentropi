@@ -4,6 +4,9 @@ from asyncio import AbstractEventLoop
 from asyncio import CancelledError
 from asyncio import Event
 from asyncio.tasks import Task
+from signal import SIGINFO
+from signal import SIGINT
+from signal import SIGTERM
 from typing import Optional
 from typing import Tuple
 from uuid import uuid4
@@ -72,6 +75,9 @@ class Agent(object):
     async def start(self, shutdown_event: Optional[Event] = None) -> None:
         self._loop = self._loop or asyncio.get_event_loop()
         self.shutdown_event = shutdown_event or Event()
+        self._loop.add_signal_handler(SIGINT, self._sigint_handler)
+        self._loop.add_signal_handler(SIGTERM, self._sigterm_handler)
+        self._loop.add_signal_handler(SIGINFO, self._siginfo_handler)
         logger.info(f'Starting agent {self.name}')
         self._running = True
         if self._endpoint and self._token:
@@ -169,3 +175,17 @@ class Agent(object):
             logger.debug('Receive loop cancelled')
         except ConnectionError:
             logger.debug('Connection was closed.')
+
+    def _siginfo_handler(self, *args) -> None:
+        print(f'Agent {self.name}.')
+        print(f'Running {len(self._spawned_tasks)} tasks:')
+        for task_id in self._spawned_tasks:
+            print(f'\t{task_id}')
+
+    def _sigint_handler(self, *args) -> None:
+        logger.warning('Received keyboard interrupt.')
+        self.shutdown_event.set()
+
+    def _sigterm_handler(self, *args) -> None:
+        logger.warning('Received termination signal.')
+        self.shutdown_event.set()

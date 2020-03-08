@@ -6,7 +6,7 @@ from ..frame import Frame
 
 class BaseTransport(ABC):  # pragma: no cover
     connected = False
-    
+
     @abstractmethod
     async def connect(self, endpoint, token) -> None:
         pass
