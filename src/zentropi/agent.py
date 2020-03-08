@@ -28,6 +28,7 @@ class Agent(object):
         self._loop = None
         self._spawned_tasks = {}
         self._handlers_interval = {}
+        self._handlers_command = {}
         self._handlers_event = {}
         self._transport = None
         self._connected = False
@@ -169,12 +170,20 @@ class Agent(object):
         try:
             while self._connected:
                 frame = await self._transport.recv()
-                handler = self._handlers_event[frame.name]
-                self.spawn(handler(frame))
+                await self._frame_handler(frame)
         except CancelledError:
             logger.debug('Receive loop cancelled')
         except ConnectionError:
             logger.debug('Connection was closed.')
+
+    async def _frame_handler(self, frame) -> None:
+        if frame.kind == Kind.COMMAND:
+            handler = self._handlers_command[frame.name]
+        elif frame.kind == Kind.EVENT:        
+            handler = self._handlers_event[frame.name]
+        else:
+            raise KeyError(f'Unknown kind {frame.kind} in {frame.name}')
+        self.spawn(handler(frame), name=f'frame-handler-{frame.name}')
 
     def _siginfo_handler(self, *args) -> None:
         print(f'Agent {self.name}.')
