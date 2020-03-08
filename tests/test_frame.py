@@ -118,3 +118,43 @@ def test_delate_dict():
     inflated_dict = {'test': 'item', 'empty': ''}
     deflated_dict = deflate_dict(inflated_dict)
     assert deflated_dict == {'test': 'item'}
+
+
+@pytest.mark.xfail(raises=TypeError)
+def test_frame_validate_name_must_be_string():
+    Frame(42)
+
+
+@pytest.mark.xfail(raises=ValueError)
+def test_frame_validate_name_must_not_be_empty():
+    Frame('     ')
+
+
+@pytest.mark.xfail(raises=TypeError)
+def test_frame_validate_kind_must_be_integer():
+    Frame('test-frame', kind='event')
+
+
+@pytest.mark.xfail(raises=ValueError)
+def test_frame_validate_kind_must_be_within_range():
+    Frame('test-frame', -1)
+
+
+@pytest.mark.xfail(raises=TypeError)
+def test_frame_validate_uuid_must_be_string():
+    Frame('test-frame', uuid=42)
+
+
+@pytest.mark.xfail(raises=ValueError)
+def test_frame_validate_uuid_must_not_be_empty():
+    Frame('test-frame', uuid='     ')
+
+
+@pytest.mark.xfail(raises=TypeError)
+def test_frame_validate_data_must_be_dict():
+    Frame('test-frame', data='expect failure')
+
+
+@pytest.mark.xfail(raises=TypeError)
+def test_frame_validate_meta_must_be_dict():
+    Frame('test-frame', meta='expect failure')

@@ -1,6 +1,6 @@
 import json
 from enum import IntEnum
-from typing import Dict
+from typing import Dict, Type
 from typing import Optional
 from uuid import uuid4
 
@@ -11,6 +11,16 @@ class Kind(IntEnum):
     """
     COMMAND = 1
     EVENT = 2
+
+KIND_VALUES = {
+    int(Kind.COMMAND),
+    int(Kind.EVENT),
+}
+
+KIND_LABELS = {
+    int(Kind.COMMAND): Kind.COMMAND.name,
+    int(Kind.EVENT): Kind.EVENT.name,
+}
 
 
 class Frame(object):
@@ -32,6 +42,34 @@ class Frame(object):
         self._uuid = uuid or uuid4().hex
         self._data = data
         self._meta = meta
+        self.validate()
+
+    def validate(self):
+        # name
+        if not isinstance(self._name, str):
+            raise TypeError(f'Frame.name must be string, got {type(self._name)}')
+        if not self._name.strip():
+            raise ValueError(f'Frame.name must not be empty, got: {self._name!r}')
+
+        # kind
+        if not isinstance(self._kind, int):
+            raise TypeError(f'Frame.kind must be int, got {type(self._kind)}')
+        if self._kind not in KIND_VALUES:
+            raise ValueError(f'Frame.kind must be one of {KIND_VALUES}, got {self._kind}')
+
+        # uuid
+        if not isinstance(self._uuid, str):
+            raise TypeError(f'Frame.uuid must be string, got {type(self._uuid)}')
+        if not self._uuid.strip():
+            raise ValueError(f'Frame.uuid must not be empty, got: {self._name!r}')
+        
+        # data
+        if self._data is not None and not isinstance(self._data, dict):
+            raise TypeError(f'Frame.data must be dict, got {type(self._data)}')
+
+        # meta
+        if self._meta is not None and not isinstance(self._meta, dict):
+            raise TypeError(f'Frame.meta must be dict, got {type(self._meta)}')
 
     @property
     def name(self):
