@@ -1,4 +1,5 @@
 import asyncio
+from asyncio import CancelledError
 import logging
 from asyncio import AbstractEventLoop
 from asyncio import Event
@@ -43,11 +44,15 @@ class Agent(object):
         await self.shutdown_event.wait()
         self._running = False
         logger.info(f'Shutting down agent {self.name}')
+        for tname, task in self._spawned_tasks.items():
+            task.cancel()
 
     def spawn(self, coro, name='') -> Tuple[str, Task]:
         async def watch(task_id, coro):
             try:
                 await coro
+            except CancelledError:
+                pass
             except Exception as e:
                 logger.exception(e)
                 self.stop()
@@ -65,7 +70,7 @@ class Agent(object):
             async def run_on_interval():
                 count = 1
                 while self._running:
-                    await asyncio.sleep(interval)
+                    await asyncio.sleep(interval)  # pragma: no cover
                     frame = Frame('interval-elapsed', kind=Kind.EVENT, data={'count': count})
                     await func(frame)
                     count += 1
