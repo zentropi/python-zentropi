@@ -17,7 +17,7 @@ class Frame(object):
                  kind: Optional[int] = None,
                  uuid: Optional[str] = None,
                  data: Optional[Dict] = None,
-                 meta: Optional[Dict] = None):
+                 meta: Optional[Dict] = None) -> None:
         """
         Frame constructor.
         """
@@ -28,7 +28,7 @@ class Frame(object):
         self._meta = meta
         self.validate()
 
-    def validate(self):
+    def validate(self) -> None:
         # name
         if not isinstance(self._name, str):
             raise TypeError(f'Frame.name must be string, got {type(self._name)}')
@@ -56,25 +56,25 @@ class Frame(object):
             raise TypeError(f'Frame.meta must be dict, got {type(self._meta)}')
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self._name
 
     @property
-    def uuid(self):
+    def uuid(self) -> str:
         return self._uuid
 
     @property
-    def kind(self):
+    def kind(self) -> int:
         return self._kind
 
     @property
-    def data(self):
+    def data(self) -> dict:
         if self._data is None:
             self._data = {}
         return self._data
 
     @property
-    def meta(self):
+    def meta(self) -> dict:
         if self._meta is None:
             self._meta = {}
         return self._meta
@@ -89,17 +89,20 @@ class Frame(object):
         })
 
     @staticmethod
-    def from_dict(frame_as_dict):
+    def from_dict(frame_as_dict: dict) -> 'Frame':
         return Frame(**frame_as_dict)
 
-    def to_json(self):
+    def to_json(self) -> str:
         return json.dumps(self.to_dict())
 
     @staticmethod
-    def from_json(frame_as_json):
+    def from_json(frame_as_json) -> 'Frame':
         return Frame.from_dict(json.loads(frame_as_json))
 
-    def reply(self, name='', data=None, meta=None):
+    def reply(self, 
+              name: str = '', 
+              data: Optional[Dict] = None, 
+              meta: Optional[Dict] = None) -> 'Frame':
         if isinstance(meta, dict):
             meta.update({'reply_to': self.uuid})
         else:
@@ -107,5 +110,5 @@ class Frame(object):
         return Frame(name=name or self.name, data=data, meta=meta)
 
 
-def deflate_dict(frame_as_dict):
+def deflate_dict(frame_as_dict: dict) -> dict:
     return {k: v for k, v in frame_as_dict.items() if v}
