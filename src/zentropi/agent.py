@@ -23,6 +23,7 @@ class Agent(object):
         self._spawned_tasks = {}
         self._handlers_interval = {}
         self._handlers_event = {}
+        self._transport = None
 
     def run(self,
             loop: Optional[AbstractEventLoop] = None,
@@ -97,3 +98,9 @@ class Agent(object):
             return func
 
         return wrapper
+
+    async def event(self, _name, **_data):
+        frame = Frame(_name, kind=Kind.EVENT, data=_data)
+        if not self._transport and _name in self._handlers_event:
+            handler = self._handlers_event[_name]
+            self.spawn(handler(frame))

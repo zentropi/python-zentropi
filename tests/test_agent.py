@@ -195,10 +195,31 @@ async def test_shutdown_handler_is_run():
     async def shutdown(frame):  # pragma: no cover
         nonlocal shutdown_handler_was_run
         shutdown_handler_was_run = True
-        a.stop()
 
     asyncio.create_task(a.start())
     for _ in range(3):
         await asyncio.sleep(0)
 
     assert shutdown_handler_was_run is True
+
+
+@pytest.mark.asyncio
+async def test_event_handler_is_run():
+    a = Agent('test-agent')
+    test_event_handler_was_run = False
+
+    @a.on_event('startup')
+    async def startup(frame):  # pragma: no cover
+        await a.event('test')
+
+    @a.on_event('test')
+    async def test(frame):  # pragma: no cover
+        nonlocal test_event_handler_was_run
+        test_event_handler_was_run = True
+        a.stop()
+
+    asyncio.create_task(a.start())
+    for _ in range(3):
+        await asyncio.sleep(0)
+
+    assert test_event_handler_was_run is True
