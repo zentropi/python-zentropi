@@ -6,6 +6,9 @@ from asyncio.tasks import Task
 from typing import Optional, Tuple
 from uuid import uuid4
 
+from .frame import Frame
+from .kind import Kind
+
 logger = logging.getLogger(__name__)
 
 
@@ -16,6 +19,7 @@ class Agent(object):
         self._running = False
         self._loop = None
         self._spawned_tasks = {}
+        self._handlers_interval = {}
 
     def run(self,
         loop: Optional[AbstractEventLoop] = None,
@@ -33,11 +37,14 @@ class Agent(object):
         self.shutdown_event = shutdown_event or Event()
         logger.info(f'Starting agent {self.name}')
         self._running = True
+        # start interval tasks
+        for int_name, int_task in self._handlers_interval.items():
+            self.spawn(int_task(), name=int_name)
         await self.shutdown_event.wait()
         self._running = False
         logger.info(f'Shutting down agent {self.name}')
 
-    def spawn(self, coro) -> Tuple[str, Task]:
+    def spawn(self, coro, name='') -> Tuple[str, Task]:
         async def watch(task_id, coro):
             try:
                 await coro
@@ -46,7 +53,22 @@ class Agent(object):
                 self.stop()
             finally:
                 del self._spawned_tasks[task_id]
-        task_id = uuid4().hex
+        task_id = name or uuid4().hex
         task = self._loop.create_task(watch(task_id, coro))
         self._spawned_tasks.update({task_id: task})
         return task_id, task
+
+    def on_interval(self, _name: str, interval: float):
+        def wrapper(func):
+            if _name in self._handlers_interval:
+                raise KeyError(f'Handler already set for {_name!r}')
+            async def run_on_interval():
+                count = 1
+                while self._running:
+                    await asyncio.sleep(interval)
+                    frame = Frame('interval-elapsed', kind=Kind.EVENT, data={'count': count})
+                    await func(frame)
+                    count += 1
+            self._handlers_interval[_name] = run_on_interval
+            return func
+        return wrapper

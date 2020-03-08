@@ -1,4 +1,5 @@
 import asyncio
+from asyncio.coroutines import iscoroutine, iscoroutinefunction
 from threading import Event
 
 import pytest
@@ -86,3 +87,50 @@ async def test_agent_spawn_exception_in_task():
     assert task_id not in a._spawned_tasks
     await asyncio.sleep(0)
     assert a._running is False
+
+
+def test_on_interval_decorator_adds_handler():
+    a = Agent('test-agent')
+
+    @a.on_interval('test-interval', 4.2)
+    async def test_interval(frame):  # pragma: no cover
+        pass
+
+    assert a._handlers_interval['test-interval']
+
+
+@pytest.mark.xfail(raises=KeyError)
+def test_on_interval_decorator_fails_on_duplicate_name():
+    a = Agent('test-agent')
+
+    @a.on_interval('test-interval', 4.2)
+    async def test_interval(frame):  # pragma: no cover
+        pass
+
+    assert a._handlers_interval['test-interval']
+
+    @a.on_interval('test-interval', 4.2)
+    async def test_interval_duplicate(frame):  # pragma: no cover
+        pass
+
+
+@pytest.mark.asyncio
+async def test_on_interval_wrapper():
+    a = Agent('test-agent')
+    interval_handler_was_run = False
+
+    @a.on_interval('test-interval', 0)
+    async def test_interval(frame):  # pragma: no cover
+        nonlocal interval_handler_was_run
+        interval_handler_was_run = True
+        print('YOOOO')
+        a.stop()
+
+    interval_handler = a._handlers_interval['test-interval']
+    assert iscoroutinefunction(interval_handler)
+    assert iscoroutinefunction(test_interval)
+
+    asyncio.create_task(a.start())
+    for _ in range(3):
+        await asyncio.sleep(0)
+    assert interval_handler_was_run is True
