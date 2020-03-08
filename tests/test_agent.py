@@ -123,7 +123,6 @@ async def test_on_interval_wrapper():
     async def test_interval(frame):  # pragma: no cover
         nonlocal interval_handler_was_run
         interval_handler_was_run = True
-        print('YOOOO')
         a.stop()
 
     interval_handler = a._handlers_interval['test-interval']
