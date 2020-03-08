@@ -63,6 +63,8 @@ class Agent(object):
             await shutdown_handler(shutdown_frame)
 
     async def _cancel_spawned_tasks(self):
+        if self._transport and self._transport.connected:
+            await self.close()
         for task_id, task in self._spawned_tasks.items():
             logger.debug(f'Cancelling task {task_id}')
             task.cancel()
