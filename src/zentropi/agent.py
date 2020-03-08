@@ -1,10 +1,11 @@
 import asyncio
-from asyncio import CancelledError
 import logging
 from asyncio import AbstractEventLoop
+from asyncio import CancelledError
 from asyncio import Event
 from asyncio.tasks import Task
-from typing import Optional, Tuple
+from typing import Optional
+from typing import Tuple
 from uuid import uuid4
 
 from .frame import Frame
@@ -21,10 +22,11 @@ class Agent(object):
         self._loop = None
         self._spawned_tasks = {}
         self._handlers_interval = {}
+        self._handlers_event = {}
 
     def run(self,
-        loop: Optional[AbstractEventLoop] = None,
-        shutdown_event: Optional[Event] = None) -> None:
+            loop: Optional[AbstractEventLoop] = None,
+            shutdown_event: Optional[Event] = None) -> None:
         logger.info(f'Running agent {self.name}')
         self._loop = loop or asyncio.new_event_loop()
         self._loop.run_until_complete(self.start(shutdown_event))
@@ -41,9 +43,17 @@ class Agent(object):
         # start interval tasks
         for int_name, int_task in self._handlers_interval.items():
             self.spawn(int_task(), name=int_name)
+        if 'startup' in self._handlers_event:
+            startup_handler = self._handlers_event['startup']
+            startup_frame = Frame('startup', kind=Kind.EVENT)
+            await startup_handler(startup_frame)
         await self.shutdown_event.wait()
         self._running = False
         logger.info(f'Shutting down agent {self.name}')
+        if 'shutdown' in self._handlers_event:
+            shutdown_handler = self._handlers_event['shutdown']
+            shutdown_frame = Frame('startup', kind=Kind.EVENT)
+            await shutdown_handler(shutdown_frame)
         for tname, task in self._spawned_tasks.items():
             task.cancel()
 
@@ -67,6 +77,7 @@ class Agent(object):
         def wrapper(func):
             if _name in self._handlers_interval:
                 raise KeyError(f'Handler already set for {_name!r}')
+
             async def run_on_interval():
                 count = 1
                 while self._running:
@@ -76,4 +87,13 @@ class Agent(object):
                     count += 1
             self._handlers_interval[_name] = run_on_interval
             return func
+        return wrapper
+
+    def on_event(self, _name):
+        def wrapper(func):
+            if _name in self._handlers_event:
+                raise KeyError(f'Handler already set for {_name!r}')
+            self._handlers_event[_name] = func
+            return func
+
         return wrapper

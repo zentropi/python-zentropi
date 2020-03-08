@@ -99,9 +99,9 @@ class Frame(object):
     def from_json(frame_as_json) -> 'Frame':
         return Frame.from_dict(json.loads(frame_as_json))
 
-    def reply(self, 
-              name: str = '', 
-              data: Optional[Dict] = None, 
+    def reply(self,
+              name: str = '',
+              data: Optional[Dict] = None,
               meta: Optional[Dict] = None) -> 'Frame':
         if isinstance(meta, dict):
             meta.update({'reply_to': self.uuid})
