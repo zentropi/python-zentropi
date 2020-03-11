@@ -10,7 +10,11 @@ async def test(frame):
 
 @a.on_event('test')
 async def hello(frame):
-    print('Hello, world.')
+    space_name = frame.meta.get("space").get("name")
+    print(f'Hello, {space_name}.')
 
 
-a.run('ws://localhost:26514/', 'test-token')
+a.run(
+    'ws://localhost:26514/',
+    token='test-token',
+)
