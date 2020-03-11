@@ -2,7 +2,6 @@ import asyncio
 import logging
 import random
 import string
-import traceback
 from asyncio import AbstractEventLoop
 from asyncio import CancelledError
 from asyncio import Event
@@ -12,14 +11,12 @@ from signal import SIGINT
 from signal import SIGTERM
 from typing import Optional
 from typing import Tuple
-from uuid import uuid4
 
 from .frame import Frame
 from .kind import Kind
 from .transport.base import BaseTransport
 from .transport.queue import QueueTransport
 from .transport.websocket import WebsocketTransport
-from logging import warning
 
 logger = logging.getLogger(__name__)
 
@@ -38,15 +35,18 @@ class Agent(object):
         self._connected = False
         self._endpoint = ''
         self._token = ''
+        self._join_spaces = True
 
     def run(self,
             endpoint: Optional[str] = '',
             token: Optional[str] = '',
+            join_spaces=True,
             loop: Optional[AbstractEventLoop] = None,
             shutdown_event: Optional[Event] = None) -> None:
         logger.info(f'Running agent {self.name}')
         self._endpoint = endpoint
         self._token = token
+        self._join_spaces = join_spaces
         self._loop = loop or asyncio.new_event_loop()
         self._loop.run_until_complete(self.start(shutdown_event))
 
@@ -87,6 +87,8 @@ class Agent(object):
         self._running = True
         if self._endpoint and self._token:
             await self.connect()
+        if self._join_spaces:
+            await self.join('*')
         await self._start_interval_tasks()
         await self._run_startup_handler()
         await self.shutdown_event.wait()
@@ -193,6 +195,7 @@ class Agent(object):
             elif '*' in self._handlers_command:
                 handler = self._handlers_command['*']
             else:
+                logger.warning(f'Unhandled COMMAND: {frame.name} {frame.data}')
                 return
         elif kind == Kind.EVENT:        
             if name in self._handlers_event:
@@ -200,6 +203,7 @@ class Agent(object):
             elif '*' in self._handlers_event:
                 handler = self._handlers_event['*']
             else:
+                logger.warning(f'Unhandled EVENT: {frame.name} {frame.data}')
                 return
         else:
             raise KeyError(f'Unknown kind {kind} in {name}')
