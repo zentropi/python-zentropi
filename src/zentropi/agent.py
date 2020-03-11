@@ -1,5 +1,7 @@
 import asyncio
 import logging
+import random
+import string
 from asyncio import AbstractEventLoop
 from asyncio import CancelledError
 from asyncio import Event
@@ -9,7 +11,6 @@ from signal import SIGINT
 from signal import SIGTERM
 from typing import Optional
 from typing import Tuple
-from uuid import uuid4
 
 from .frame import Frame
 from .kind import Kind
@@ -34,15 +35,18 @@ class Agent(object):
         self._connected = False
         self._endpoint = ''
         self._token = ''
+        self._join_spaces = True
 
     def run(self,
             endpoint: Optional[str] = '',
             token: Optional[str] = '',
+            join_spaces=True,
             loop: Optional[AbstractEventLoop] = None,
             shutdown_event: Optional[Event] = None) -> None:
         logger.info(f'Running agent {self.name}')
         self._endpoint = endpoint
         self._token = token
+        self._join_spaces = join_spaces
         self._loop = loop or asyncio.new_event_loop()
         self._loop.run_until_complete(self.start(shutdown_event))
 
@@ -52,7 +56,7 @@ class Agent(object):
 
     async def _start_interval_tasks(self):
         for int_name, int_task in self._handlers_interval.items():
-            self.spawn(int_task(), name=int_name)
+            self.spawn(int_task(), name=f'interval-task-{int_name}')
 
     async def _run_startup_handler(self):
         if 'startup' in self._handlers_event:
@@ -83,6 +87,8 @@ class Agent(object):
         self._running = True
         if self._endpoint and self._token:
             await self.connect()
+        if self._join_spaces:
+            await self.join('*')
         await self._start_interval_tasks()
         await self._run_startup_handler()
         await self.shutdown_event.wait()
@@ -102,7 +108,11 @@ class Agent(object):
                 self.stop()
             finally:
                 del self._spawned_tasks[task_id]
-        task_id = name or uuid4().hex
+        random_id = ''.join([random.choice(string.ascii_letters + string.digits) for n in range(6)])
+        if name in ['recv-loop'] or name.startswith('interval-task'):
+            task_id = name
+        else:
+            task_id = name + '-' + random_id
         task = self._loop.create_task(watch(task_id, coro))
         self._spawned_tasks.update({task_id: task})
         return task_id, task
@@ -177,12 +187,26 @@ class Agent(object):
             logger.debug('Connection was closed.')
 
     async def _frame_handler(self, frame) -> None:
-        if frame.kind == Kind.COMMAND:
-            handler = self._handlers_command[frame.name]
-        elif frame.kind == Kind.EVENT:        
-            handler = self._handlers_event[frame.name]
+        kind = frame.kind
+        name = frame.name
+        if kind == Kind.COMMAND:
+            if name in self._handlers_command:
+                handler = self._handlers_command[name]
+            elif '*' in self._handlers_command:
+                handler = self._handlers_command['*']
+            else:
+                logger.warning(f'Unhandled COMMAND: {frame.name} {frame.data}')
+                return
+        elif kind == Kind.EVENT:        
+            if name in self._handlers_event:
+                handler = self._handlers_event[name]
+            elif '*' in self._handlers_event:
+                handler = self._handlers_event['*']
+            else:
+                logger.warning(f'Unhandled EVENT: {frame.name} {frame.data}')
+                return
         else:
-            raise KeyError(f'Unknown kind {frame.kind} in {frame.name}')
+            raise KeyError(f'Unknown kind {kind} in {name}')
         self.spawn(handler(frame), name=f'frame-handler-{frame.name}')
 
     def _siginfo_handler(self, *args) -> None:
@@ -198,3 +222,21 @@ class Agent(object):
     def _sigterm_handler(self, *args) -> None:
         logger.warning('Received termination signal.')
         self.shutdown_event.set()
+
+    async def join(self, spaces):
+        if isinstance(spaces, str):
+            spaces = [spaces]
+        else:
+            spaces = list(spaces)
+        logger.warning(f'Joining spaces {spaces}')
+        frame = Frame('join', kind=Kind.COMMAND, data={'spaces': spaces})
+        await self._transport.send(frame)
+
+    async def leave(self, spaces):
+        if isinstance(spaces, str):
+            spaces = [spaces]
+        else:
+            spaces = list(spaces)
+        logger.warning(f'Leaving spaces {spaces}')
+        frame = Frame('leave', kind=Kind.COMMAND, data={'spaces': spaces})
+        await self._transport.send(frame)

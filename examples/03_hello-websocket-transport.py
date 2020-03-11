@@ -14,4 +14,7 @@ async def hello(frame):
     a.stop()
 
 
-a.run('ws://localhost:26514/', 'test-token')
+a.run(
+    'ws://localhost:26514/',
+    'test-token',
+)
