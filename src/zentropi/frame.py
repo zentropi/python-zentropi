@@ -107,7 +107,7 @@ class Frame(object):
             meta.update({'reply_to': self.uuid})
         else:
             meta = {'reply_to': self.uuid}
-        return Frame(name=name or self.name, data=data, meta=meta)
+        return Frame(name=name or self.name, kind=self.kind, data=data, meta=meta)
 
 
 def deflate_dict(frame_as_dict: dict) -> dict:
