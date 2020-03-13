@@ -37,21 +37,18 @@ class Agent(object):
         self._token = ''
         self._join_spaces = True
 
-    def run(self,
-            endpoint: Optional[str] = '',
-            token: Optional[str] = '',
-            join_spaces=True,
-            loop: Optional[AbstractEventLoop] = None,
-            shutdown_event: Optional[Event] = None) -> None:
-        logger.info(f'Running agent {self.name}')
-        self._endpoint = endpoint
-        self._token = token
-        self._join_spaces = join_spaces
-        self._loop = loop or asyncio.new_event_loop()
-        self._loop.run_until_complete(self.start(shutdown_event))
+    def _siginfo_handler(self, *args) -> None:
+        print(f'Agent {self.name}.')
+        print(f'Running {len(self._spawned_tasks)} tasks:')
+        for task_id in self._spawned_tasks:
+            print(f'\t{task_id}')
 
-    def stop(self) -> None:
-        logger.info(f'Stopping agent {self.name}')
+    def _sigint_handler(self, *args) -> None:
+        logger.warning('Received keyboard interrupt.')
+        self.shutdown_event.set()
+
+    def _sigterm_handler(self, *args) -> None:
+        logger.warning('Received termination signal.')
         self.shutdown_event.set()
 
     async def _start_interval_tasks(self):
@@ -76,6 +73,55 @@ class Agent(object):
         for task_id, task in self._spawned_tasks.items():
             logger.debug(f'Cancelling task {task_id}')
             task.cancel()
+    async def _recv_loop(self):
+        try:
+            while self._connected:
+                frame = await self._transport.recv()
+                await self._frame_handler(frame)
+        except CancelledError:
+            logger.debug('Receive loop cancelled')
+        except ConnectionError:
+            logger.debug('Connection was closed.')
+
+    async def _frame_handler(self, frame) -> None:
+        kind = frame.kind
+        name = frame.name
+        if kind == Kind.COMMAND:
+            if name in self._handlers_command:
+                handler = self._handlers_command[name]
+            elif '*' in self._handlers_command:
+                handler = self._handlers_command['*']
+            else:
+                logger.warning(f'Unhandled COMMAND: {frame.name} {frame.data}')
+                return
+        elif kind == Kind.EVENT:
+            if name in self._handlers_event:
+                handler = self._handlers_event[name]
+            elif '*' in self._handlers_event:
+                handler = self._handlers_event['*']
+            else:
+                logger.warning(f'Unhandled EVENT: {frame.name} {frame.data}')
+                return
+        else:
+            raise KeyError(f'Unknown kind {kind} in {name}')
+        self.spawn(handler(frame), name=f'frame-handler-{frame.name}')
+
+    def run(self,
+            endpoint: Optional[str] = '',
+            token: Optional[str] = '',
+            join_spaces=True,
+            loop: Optional[AbstractEventLoop] = None,
+            shutdown_event: Optional[Event] = None) -> None:
+        logger.info(f'Running agent {self.name}')
+        self._endpoint = endpoint
+        self._token = token
+        self._join_spaces = join_spaces
+        self._loop = loop or asyncio.new_event_loop()
+        self._loop.run_until_complete(self.start(shutdown_event))
+
+    def stop(self) -> None:
+        logger.info(f'Stopping agent {self.name}')
+        self.shutdown_event.set()
 
     async def start(self, shutdown_event: Optional[Event] = None) -> None:
         self._loop = self._loop or asyncio.get_event_loop()
@@ -175,53 +221,6 @@ class Agent(object):
         self._connected = False
         if 'recv-loop' in self._spawned_tasks:
             self._spawned_tasks['recv-loop'].cancel()
-
-    async def _recv_loop(self):
-        try:
-            while self._connected:
-                frame = await self._transport.recv()
-                await self._frame_handler(frame)
-        except CancelledError:
-            logger.debug('Receive loop cancelled')
-        except ConnectionError:
-            logger.debug('Connection was closed.')
-
-    async def _frame_handler(self, frame) -> None:
-        kind = frame.kind
-        name = frame.name
-        if kind == Kind.COMMAND:
-            if name in self._handlers_command:
-                handler = self._handlers_command[name]
-            elif '*' in self._handlers_command:
-                handler = self._handlers_command['*']
-            else:
-                logger.warning(f'Unhandled COMMAND: {frame.name} {frame.data}')
-                return
-        elif kind == Kind.EVENT:        
-            if name in self._handlers_event:
-                handler = self._handlers_event[name]
-            elif '*' in self._handlers_event:
-                handler = self._handlers_event['*']
-            else:
-                logger.warning(f'Unhandled EVENT: {frame.name} {frame.data}')
-                return
-        else:
-            raise KeyError(f'Unknown kind {kind} in {name}')
-        self.spawn(handler(frame), name=f'frame-handler-{frame.name}')
-
-    def _siginfo_handler(self, *args) -> None:
-        print(f'Agent {self.name}.')
-        print(f'Running {len(self._spawned_tasks)} tasks:')
-        for task_id in self._spawned_tasks:
-            print(f'\t{task_id}')
-
-    def _sigint_handler(self, *args) -> None:
-        logger.warning('Received keyboard interrupt.')
-        self.shutdown_event.set()
-
-    def _sigterm_handler(self, *args) -> None:
-        logger.warning('Received termination signal.')
-        self.shutdown_event.set()
 
     async def join(self, spaces):
         if isinstance(spaces, str):
