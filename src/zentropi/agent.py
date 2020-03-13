@@ -202,6 +202,8 @@ class Agent(object):
                       transport: Optional[BaseTransport] = None):
         endpoint = endpoint or self._endpoint
         token = token or self._token
+        self._endpoint = endpoint
+        self._token = token
         if transport:
             self._transport = transport
         elif endpoint.startswith('queue://'):
