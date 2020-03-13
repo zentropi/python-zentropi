@@ -36,6 +36,7 @@ class Agent(object):
         self._endpoint = ''
         self._token = ''
         self._join_spaces = True
+        self._connecting = False
 
     def _siginfo_handler(self, *args) -> None:
         print(f'Agent {self.name}.')
@@ -73,6 +74,7 @@ class Agent(object):
         for task_id, task in self._spawned_tasks.items():
             logger.debug(f'Cancelling task {task_id}')
             task.cancel()
+
     async def _recv_loop(self):
         try:
             while self._connected:
@@ -80,8 +82,10 @@ class Agent(object):
                 await self._frame_handler(frame)
         except CancelledError:
             logger.debug('Receive loop cancelled')
-        except ConnectionError:
-            logger.debug('Connection was closed.')
+        except (ConnectionError, Exception) as e:
+            # logger.exception(e)
+            logger.warning(f'Unable to receive frames, will reconnect.')
+            await self._reconnect()
 
     async def _frame_handler(self, frame) -> None:
         kind = frame.kind
@@ -133,8 +137,6 @@ class Agent(object):
         self._running = True
         if self._endpoint and self._token:
             await self.connect()
-        if self._join_spaces:
-            await self.join('*')
         await self._start_interval_tasks()
         await self._run_startup_handler()
         await self.shutdown_event.wait()
@@ -194,12 +196,29 @@ class Agent(object):
             handler = self._handlers_event[_name]
             self.spawn(handler(frame))
         else:
+            await self.send(frame)
+
+    async def send(self, frame):
+        try:
             await self._transport.send(frame)
+        except Exception as e:
+            # logger.exception(e)
+            logger.warning(f'Unable to send frame {frame.name}, will reconnect.')
+            await self._reconnect()
+
+    async def _reconnect(self):
+        if self._connecting:
+            return
+        await self.close()
+        await self.connect()
 
     async def connect(self,
                       endpoint: Optional[str] = '',
                       token: Optional[str] = '',
                       transport: Optional[BaseTransport] = None):
+        if self._connecting:
+            return
+        self._connecting = True
         endpoint = endpoint or self._endpoint
         token = token or self._token
         self._endpoint = endpoint
@@ -218,7 +237,11 @@ class Agent(object):
             raise RuntimeError(f'Unable to select a transport for endpoint {endpoint!r}')
         await self._wait_for_connection()
         self._connected = True
+        self._connecting = False
         self.spawn(self._recv_loop(), name='recv-loop')
+        if self._join_spaces:
+            await self.join('*')
+
 
     async def _wait_for_connection(self):
         while True:
@@ -243,7 +266,8 @@ class Agent(object):
             spaces = list(spaces)
         logger.warning(f'Joining spaces {spaces}')
         frame = Frame('join', kind=Kind.COMMAND, data={'spaces': spaces})
-        await self._transport.send(frame)
+        await self.send(frame)
+
 
     async def leave(self, spaces):
         if isinstance(spaces, str):
@@ -252,4 +276,4 @@ class Agent(object):
             spaces = list(spaces)
         logger.warning(f'Leaving spaces {spaces}')
         frame = Frame('leave', kind=Kind.COMMAND, data={'spaces': spaces})
-        await self._transport.send(frame)
+        await self.send(frame)
