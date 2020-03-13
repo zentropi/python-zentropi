@@ -37,6 +37,8 @@ class Agent(object):
         self._token = ''
         self._join_spaces = True
         self._connecting = False
+        self._spaces = set()
+        self._keep_connecting = True
 
     def _siginfo_handler(self, *args) -> None:
         print(f'Agent {self.name}.')
@@ -142,6 +144,7 @@ class Agent(object):
         await self.shutdown_event.wait()
         self._running = False
         logger.info(f'Shutting down agent {self.name}')
+        self._keep_connecting = False
         await self._run_shutdown_handler()
         await self._cancel_spawned_tasks()
 
@@ -239,12 +242,13 @@ class Agent(object):
         self._connected = True
         self._connecting = False
         self.spawn(self._recv_loop(), name='recv-loop')
-        if self._join_spaces:
+        if self._spaces:
+            await self.join(self._spaces)
+        elif self._join_spaces:
             await self.join('*')
 
-
     async def _wait_for_connection(self):
-        while True:
+        while self._keep_connecting:
             try:
                 await self._transport.connect(self._endpoint, self._token)
                 break
@@ -261,19 +265,20 @@ class Agent(object):
 
     async def join(self, spaces):
         if isinstance(spaces, str):
-            spaces = [spaces]
+            spaces = {s.strip() for s in spaces.split(',')}
         else:
-            spaces = list(spaces)
+            spaces = set(spaces)
+        [self._spaces.add(s) for s in spaces]
         logger.warning(f'Joining spaces {spaces}')
-        frame = Frame('join', kind=Kind.COMMAND, data={'spaces': spaces})
+        frame = Frame('join', kind=Kind.COMMAND, data={'spaces': list(spaces)})
         await self.send(frame)
-
 
     async def leave(self, spaces):
         if isinstance(spaces, str):
-            spaces = [spaces]
+            spaces = {s.strip() for s in spaces.split(',')}
         else:
-            spaces = list(spaces)
+            spaces = set(spaces)
+        [self._spaces.remove(s) for s in spaces]
         logger.warning(f'Leaving spaces {spaces}')
-        frame = Frame('leave', kind=Kind.COMMAND, data={'spaces': spaces})
+        frame = Frame('leave', kind=Kind.COMMAND, data={'spaces': list(spaces)})
         await self.send(frame)
