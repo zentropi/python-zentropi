@@ -204,6 +204,8 @@ class Agent(object):
         token = token or self._token
         self._endpoint = endpoint
         self._token = token
+        self._given_transport = transport
+        transport = transport or self._given_transport
         if transport:
             self._transport = transport
         elif endpoint.startswith('queue://'):
@@ -214,9 +216,19 @@ class Agent(object):
             pass  # Set in run()
         else:
             raise RuntimeError(f'Unable to select a transport for endpoint {endpoint!r}')
-        await self._transport.connect(endpoint, token)
+        await self._wait_for_connection()
         self._connected = True
         self.spawn(self._recv_loop(), name='recv-loop')
+
+    async def _wait_for_connection(self):
+        while True:
+            try:
+                await self._transport.connect(self._endpoint, self._token)
+                break
+            except Exception as e:
+                # logger.exception(e)
+                logger.warning(f'Unable to connect, will retry.')
+                await asyncio.sleep(3)
 
     async def close(self):
         await self._transport.close()
