@@ -15,6 +15,7 @@ from typing import Tuple
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from . import KB
 from . import configure_logging
 from .frame import Frame
 from .kind import Kind
@@ -69,6 +70,7 @@ class Agent(object):
         self._command_handlers = {}
         self._message_handlers = {}
         self._send_queue = None
+        self._frame_max_size = 1 * KB
 
     ### Logging
 
@@ -313,10 +315,10 @@ class Agent(object):
         await self.command('leave', spaces=list(spaces))
 
     async def filter_frames(self):
-        filters = {'event': {}, 'message': {}}
+        filters = {'event': {}, 'message': {}, 'size': self._frame_max_size}
         filters['event'] = list(set(self._event_handlers.keys()) - INTERNAL_EVENT_NAMES)
         filters['message'] = list(self._message_handlers.keys())
-        await self.command('filter', names=filters)
+        await self.command('filter', names=filters, size=self._frame_max_size)
 
     ### Frame Handlers
 
