@@ -24,6 +24,8 @@ from .transport.websocket import WebsocketTransport
 
 logger = logging.getLogger(__name__)
 
+INTERNAL_EVENT_NAMES = {'startup', 'shutdown'}
+
 
 def random_string(length: int):
     return ''.join([random.choice(string.ascii_letters + string.digits) for n in range(length)])
@@ -157,7 +159,8 @@ class Agent(object):
             logger.exception(e)
             self.stop()
         finally:
-            del self._async_tasks[name]
+            if name in self._async_tasks:
+                del self._async_tasks[name]
 
     def spawn(self, name, coro, ensure_single_instance=False):
         if ensure_single_instance and name in self._async_tasks:
@@ -170,9 +173,21 @@ class Agent(object):
         return name, task
 
     async def _cancel_async_tasks(self):
+        tasks = []
         for task_id, task in self._async_tasks.items():
             logger.debug(f'Cancelling task {task_id}')
+            tasks.append(task)
             task.cancel()
+        await asyncio.gather(*tasks)
+
+    async def _cancel_send_recv_loops(self):
+        tasks = []
+        for name in {'frame-send-loop', 'frame-receive-loop'}:
+            if name in self._async_tasks:
+                task = self._async_tasks[name]
+                tasks.append(task)
+                task.cancel()
+        await asyncio.gather(*tasks)
 
     ### Connection
 
@@ -200,10 +215,12 @@ class Agent(object):
             logger.info(f'Unable to connect to {self._endpoint}, will try again later.')
             return
         try:
+            await self._cancel_send_recv_loops()
             self.spawn(
                 'frame-receive-loop',
                 self._frame_receive_loop(),
                 ensure_single_instance=True)
+            await self.filter_frames()
             if self._joined_spaces:
                 await self.join(self._joined_spaces)
             elif self._join_all_spaces:
@@ -220,11 +237,14 @@ class Agent(object):
         try:
             while self._connected:
                 frame = await self._connection.recv()
+                if frame.kind == Kind.EVENT and frame.name in INTERNAL_EVENT_NAMES:
+                    logger.debug(f'Skip frame with internal name: {frame.to_dict()!r}')
+                    continue
                 await self.handle_frame(frame)
         except CancelledError:
             logger.debug('Receive loop cancelled')
         except ConnectionError:
-            logger.warning('Connection was closed.')
+            logger.warning('Connection closed')
             self._connected = False
 
     async def _frame_send_loop(self):
@@ -235,7 +255,7 @@ class Agent(object):
         except CancelledError:
             logger.debug('Receive loop cancelled')
         except ConnectionError:
-            logger.warning('Connection was closed.')
+            logger.warning('Connection closed')
             self._connected = False
 
     async def _close_connection(self):
@@ -291,6 +311,12 @@ class Agent(object):
         logger.info(f'Leaving spaces: {spaces!r}')
         [self._joined_spaces.remove(s) for s in spaces]
         await self.command('leave', spaces=list(spaces))
+
+    async def filter_frames(self):
+        filters = {'event': {}, 'message': {}}
+        filters['event'] = list(set(self._event_handlers.keys()) - INTERNAL_EVENT_NAMES)
+        filters['message'] = list(self._message_handlers.keys())
+        await self.command('filter', names=filters)
 
     ### Frame Handlers
 
