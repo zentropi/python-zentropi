@@ -15,6 +15,7 @@ from typing import Tuple
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
+from . import KB
 from . import configure_logging
 from .frame import Frame
 from .kind import Kind
@@ -23,6 +24,8 @@ from .transport.queue import QueueTransport
 from .transport.websocket import WebsocketTransport
 
 logger = logging.getLogger(__name__)
+
+INTERNAL_EVENT_NAMES = {'startup', 'shutdown'}
 
 
 def random_string(length: int):
@@ -65,7 +68,11 @@ class Agent(object):
         self._interval_handlers = {}
         self._event_handlers = {}
         self._command_handlers = {}
+        self._message_handlers = {}
+        self._request_handlers = {}
         self._send_queue = None
+        self._frame_max_size = 1 * KB
+        self._response_wait_queues = {}
 
     ### Logging
 
@@ -156,7 +163,8 @@ class Agent(object):
             logger.exception(e)
             self.stop()
         finally:
-            del self._async_tasks[name]
+            if name in self._async_tasks:
+                del self._async_tasks[name]
 
     def spawn(self, name, coro, ensure_single_instance=False):
         if ensure_single_instance and name in self._async_tasks:
@@ -169,9 +177,21 @@ class Agent(object):
         return name, task
 
     async def _cancel_async_tasks(self):
+        tasks = []
         for task_id, task in self._async_tasks.items():
             logger.debug(f'Cancelling task {task_id}')
+            tasks.append(task)
             task.cancel()
+        await asyncio.gather(*tasks)
+
+    async def _cancel_send_recv_loops(self):
+        tasks = []
+        for name in {'frame-send-loop', 'frame-receive-loop'}:
+            if name in self._async_tasks:
+                task = self._async_tasks[name]
+                tasks.append(task)
+                task.cancel()
+        await asyncio.gather(*tasks)
 
     ### Connection
 
@@ -199,10 +219,12 @@ class Agent(object):
             logger.info(f'Unable to connect to {self._endpoint}, will try again later.')
             return
         try:
+            await self._cancel_send_recv_loops()
             self.spawn(
                 'frame-receive-loop',
                 self._frame_receive_loop(),
                 ensure_single_instance=True)
+            await self.filter_frames()
             if self._joined_spaces:
                 await self.join(self._joined_spaces)
             elif self._join_all_spaces:
@@ -219,11 +241,19 @@ class Agent(object):
         try:
             while self._connected:
                 frame = await self._connection.recv()
+                if frame.kind == Kind.EVENT and frame.name in INTERNAL_EVENT_NAMES:
+                    logger.debug(f'Skip frame with internal name: {frame.to_dict()!r}')
+                    continue
+                if frame.kind == Kind.RESPONSE:
+                    response_to_uuid = frame.meta.get('reply_to')
+                    if response_to_uuid in self._response_wait_queues:
+                        await self._response_wait_queues[response_to_uuid].put(frame)
+                    continue
                 await self.handle_frame(frame)
         except CancelledError:
             logger.debug('Receive loop cancelled')
         except ConnectionError:
-            logger.warning('Connection was closed.')
+            logger.warning('Connection closed')
             self._connected = False
 
     async def _frame_send_loop(self):
@@ -234,7 +264,7 @@ class Agent(object):
         except CancelledError:
             logger.debug('Receive loop cancelled')
         except ConnectionError:
-            logger.warning('Connection was closed.')
+            logger.warning('Connection closed')
             self._connected = False
 
     async def _close_connection(self):
@@ -269,6 +299,32 @@ class Agent(object):
         frame = Frame(_name, kind=Kind.EVENT, data=_data)
         await self.send(frame)
 
+    event = emit
+
+    async def message(self, _name, text='', locale='en_US', **_data):
+        meta = {'locale': locale}
+        _data.update({'text': text})
+        frame = Frame(_name, kind=Kind.MESSAGE, data=_data, meta=meta)
+        await self.send(frame)
+
+    async def request(self, _name: str, timeout: int, **_data):
+        frame = Frame(_name, kind=Kind.REQUEST, data=_data)
+        await self.send(frame)
+        try:
+            return await asyncio.wait_for(self._wait_for_response(frame), timeout=timeout)
+        except Exception as e:
+            raise TimeoutError('Timed out waiting for response') from e
+
+    async def _wait_for_response(self, frame: Frame):
+        self._response_wait_queues[frame.uuid] = Queue()
+        try:
+            response = await self._response_wait_queues[frame.uuid].get()
+            if '_response' in response.data:
+                return response.data['_response']
+            return response.data
+        finally:
+            del self._response_wait_queues[frame.uuid]
+
     ### Protocol Commands
 
     async def join(self, spaces):
@@ -282,6 +338,13 @@ class Agent(object):
         logger.info(f'Leaving spaces: {spaces!r}')
         [self._joined_spaces.remove(s) for s in spaces]
         await self.command('leave', spaces=list(spaces))
+
+    async def filter_frames(self):
+        filters = {'event': {}, 'message': {}, 'size': self._frame_max_size}
+        filters['event'] = list(set(self._event_handlers.keys()) - INTERNAL_EVENT_NAMES)
+        filters['message'] = list(self._message_handlers.keys())
+        filters['request'] = list(self._request_handlers.keys())
+        await self.command('filter', names=filters, size=self._frame_max_size)
 
     ### Frame Handlers
 
@@ -312,6 +375,24 @@ class Agent(object):
 
         return wrapper
 
+    def on_message(self, _name):
+        def wrapper(func):
+            if _name in self._message_handlers:
+                raise KeyError(f'Event handler already set for {_name!r}')
+            self._message_handlers[_name] = func
+            return func
+
+        return wrapper
+
+    def on_request(self, _name):
+        def wrapper(func):
+            if _name in self._request_handlers:
+                raise KeyError(f'Event handler already set for {_name!r}')
+            self._request_handlers[_name] = func
+            return func
+
+        return wrapper
+
     async def get_handler(self, frame: Frame):
         kind = frame.kind
         name = frame.name
@@ -319,6 +400,10 @@ class Agent(object):
             handlers = self._command_handlers
         elif kind == Kind.EVENT:
             handlers = self._event_handlers
+        elif kind == Kind.MESSAGE:
+            handlers = self._message_handlers
+        elif kind == Kind.REQUEST:
+            handlers = self._request_handlers
         else:
             raise KeyError(f'Unknown kind {kind} in {name}')
         if name in handlers:
@@ -337,7 +422,7 @@ class Agent(object):
         if not handler:
             return
         self.spawn(
-            f'handler-{frame.name}-{frame.uuid}', 
+            f'handler-{frame.name}-{frame.uuid}',
             self._run_handler(handler, frame),
             ensure_single_instance=True)
 
@@ -346,6 +431,10 @@ class Agent(object):
         if not response:
             return
         logger.debug(f'Handler for frame {frame.name} returned response {response!r}')
+        if isinstance(response, dict):
+            await self.send(frame.reply(data=response))
+        else:
+            await self.send(frame.reply(data={'_response': response}))
 
     async def _start_interval_handlers(self):
         for int_spec, int_task in self._interval_handlers.items():

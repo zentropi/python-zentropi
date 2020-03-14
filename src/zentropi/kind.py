@@ -7,15 +7,24 @@ class Kind(IntEnum):
     """
     COMMAND = 1
     EVENT = 2
+    MESSAGE = 3
+    REQUEST = 4
+    RESPONSE = 5
 
 
 KIND_VALUES = {
     int(Kind.COMMAND),
     int(Kind.EVENT),
+    int(Kind.MESSAGE),
+    int(Kind.REQUEST),
+    int(Kind.RESPONSE),
 }
 
 
 KIND_LABELS = {
     int(Kind.COMMAND): Kind.COMMAND.name,
     int(Kind.EVENT): Kind.EVENT.name,
+    int(Kind.MESSAGE): Kind.MESSAGE.name,
+    int(Kind.REQUEST): Kind.REQUEST.name,
+    int(Kind.RESPONSE): Kind.RESPONSE.name,
 }
