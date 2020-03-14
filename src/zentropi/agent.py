@@ -69,8 +69,10 @@ class Agent(object):
         self._event_handlers = {}
         self._command_handlers = {}
         self._message_handlers = {}
+        self._request_handlers = {}
         self._send_queue = None
         self._frame_max_size = 1 * KB
+        self._response_wait_queues = {}
 
     ### Logging
 
@@ -242,6 +244,11 @@ class Agent(object):
                 if frame.kind == Kind.EVENT and frame.name in INTERNAL_EVENT_NAMES:
                     logger.debug(f'Skip frame with internal name: {frame.to_dict()!r}')
                     continue
+                if frame.kind == Kind.RESPONSE:
+                    response_to_uuid = frame.meta.get('reply_to')
+                    if response_to_uuid in self._response_wait_queues:
+                        await self._response_wait_queues[response_to_uuid].put(frame)
+                    continue
                 await self.handle_frame(frame)
         except CancelledError:
             logger.debug('Receive loop cancelled')
@@ -300,6 +307,24 @@ class Agent(object):
         frame = Frame(_name, kind=Kind.MESSAGE, data=_data, meta=meta)
         await self.send(frame)
 
+    async def request(self, _name: str, timeout: int, **_data):
+        frame = Frame(_name, kind=Kind.REQUEST, data=_data)
+        await self.send(frame)
+        try:
+            return await asyncio.wait_for(self._wait_for_response(frame), timeout=timeout)
+        except Exception as e:
+            raise TimeoutError('Timed out waiting for response') from e
+
+    async def _wait_for_response(self, frame: Frame):
+        self._response_wait_queues[frame.uuid] = Queue()
+        try:
+            response = await self._response_wait_queues[frame.uuid].get()
+            if '_response' in response.data:
+                return response.data['_response']
+            return response.data
+        finally:
+            del self._response_wait_queues[frame.uuid]
+
     ### Protocol Commands
 
     async def join(self, spaces):
@@ -318,6 +343,7 @@ class Agent(object):
         filters = {'event': {}, 'message': {}, 'size': self._frame_max_size}
         filters['event'] = list(set(self._event_handlers.keys()) - INTERNAL_EVENT_NAMES)
         filters['message'] = list(self._message_handlers.keys())
+        filters['request'] = list(self._request_handlers.keys())
         await self.command('filter', names=filters, size=self._frame_max_size)
 
     ### Frame Handlers
@@ -358,6 +384,15 @@ class Agent(object):
 
         return wrapper
 
+    def on_request(self, _name):
+        def wrapper(func):
+            if _name in self._request_handlers:
+                raise KeyError(f'Event handler already set for {_name!r}')
+            self._request_handlers[_name] = func
+            return func
+
+        return wrapper
+
     async def get_handler(self, frame: Frame):
         kind = frame.kind
         name = frame.name
@@ -367,6 +402,8 @@ class Agent(object):
             handlers = self._event_handlers
         elif kind == Kind.MESSAGE:
             handlers = self._message_handlers
+        elif kind == Kind.REQUEST:
+            handlers = self._request_handlers
         else:
             raise KeyError(f'Unknown kind {kind} in {name}')
         if name in handlers:
@@ -385,7 +422,7 @@ class Agent(object):
         if not handler:
             return
         self.spawn(
-            f'handler-{frame.name}-{frame.uuid}', 
+            f'handler-{frame.name}-{frame.uuid}',
             self._run_handler(handler, frame),
             ensure_single_instance=True)
 
@@ -394,6 +431,10 @@ class Agent(object):
         if not response:
             return
         logger.debug(f'Handler for frame {frame.name} returned response {response!r}')
+        if isinstance(response, dict):
+            await self.send(frame.reply(data=response))
+        else:
+            await self.send(frame.reply(data={'_response': response}))
 
     async def _start_interval_handlers(self):
         for int_spec, int_task in self._interval_handlers.items():

@@ -107,6 +107,8 @@ class Frame(object):
             meta.update({'reply_to': self.uuid})
         else:
             meta = {'reply_to': self.uuid}
+        if self.kind == Kind.REQUEST:
+            return Frame(name=self.name, kind=Kind.RESPONSE, data=data, meta=meta)
         return Frame(name=name or self.name, kind=self.kind, data=data, meta=meta)
 
 
