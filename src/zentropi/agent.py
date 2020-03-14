@@ -5,6 +5,7 @@ import string
 from asyncio import AbstractEventLoop
 from asyncio import CancelledError
 from asyncio import Event
+from asyncio import Queue
 from asyncio.tasks import Task
 from signal import SIGINFO
 from signal import SIGINT
@@ -12,6 +13,9 @@ from signal import SIGTERM
 from typing import Optional
 from typing import Tuple
 
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+from . import configure_logging
 from .frame import Frame
 from .kind import Kind
 from .transport.base import BaseTransport
@@ -21,264 +25,344 @@ from .transport.websocket import WebsocketTransport
 logger = logging.getLogger(__name__)
 
 
+def random_string(length: int):
+    return ''.join([random.choice(string.ascii_letters + string.digits) for n in range(length)])
+
+
+def select_transport(endpoint: str):
+    if endpoint.startswith('queue://'):
+        return QueueTransport
+    elif endpoint.startswith('ws://') or endpoint.startswith('wss://'):
+        return WebsocketTransport
+
+
+def clean_space_names(spaces):
+    if isinstance(spaces, str):
+        if ',' in spaces:
+            spaces = {s.strip() for s in spaces.split(',')}
+        else:
+            spaces = {s.strip() for s in spaces.split(' ')}
+    else:
+        spaces = set(spaces)
+    return spaces
+
+
 class Agent(object):
     def __init__(self, name: str) -> None:
         self.name = name
-        self.shutdown_event = None
-        self._running = False
-        self._loop = None
-        self._spawned_tasks = {}
-        self._handlers_interval = {}
-        self._handlers_command = {}
-        self._handlers_event = {}
-        self._transport = None
-        self._connected = False
+        self._scheduler = None
+        self._shutdown_trigger = None
         self._endpoint = ''
         self._token = ''
-        self._join_spaces = True
-        self._connecting = False
-        self._spaces = set()
-        self._keep_connecting = True
+        self._transport = None
+        self._connection = None
+        self._connected = False
+        self._loop = None
+        self._join_all_spaces = True
+        self._joined_spaces = set()
+        self._running = False
+        self._async_tasks = {}
+        self._interval_handlers = {}
+        self._event_handlers = {}
+        self._command_handlers = {}
+        self._send_queue = None
 
-    def _siginfo_handler(self, *args) -> None:
+    ### Logging
+
+    def configure_logging(self,
+                          log_file='',
+                          log_level='warning'):
+        if isinstance(log_level, str):
+            log_level = getattr(logging, log_level.upper())
+        if not log_file:
+            log_file = 'zentropi-agent-{}.log'.format(self.name)
+        configure_logging(
+            log_file=log_file,
+            log_level=log_level)
+
+    ### Signal Handling
+
+    def _siginfo_handler(self, *args) -> None:  # pragma: no cover
         print(f'Agent {self.name}.')
-        print(f'Running {len(self._spawned_tasks)} tasks:')
-        for task_id in self._spawned_tasks:
+        print(f'Running {len(self._async_tasks)} tasks:')
+        for task_id in self._async_tasks:
             print(f'\t{task_id}')
 
-    def _sigint_handler(self, *args) -> None:
+    def _sigint_handler(self, *args) -> None:  # pragma: no cover
+        print('')
         logger.warning('Received keyboard interrupt.')
-        self.shutdown_event.set()
+        self._shutdown_trigger.set()
 
-    def _sigterm_handler(self, *args) -> None:
+    def _sigterm_handler(self, *args) -> None:  # pragma: no cover
         logger.warning('Received termination signal.')
-        self.shutdown_event.set()
+        self._shutdown_trigger.set()
 
-    async def _start_interval_tasks(self):
-        for int_name, int_task in self._handlers_interval.items():
-            self.spawn(int_task(), name=f'interval-task-{int_name}')
-
-    async def _run_startup_handler(self):
-        if 'startup' in self._handlers_event:
-            startup_handler = self._handlers_event['startup']
-            startup_frame = Frame('startup', kind=Kind.EVENT)
-            await startup_handler(startup_frame)
-
-    async def _run_shutdown_handler(self):
-        if 'shutdown' in self._handlers_event:
-            shutdown_handler = self._handlers_event['shutdown']
-            shutdown_frame = Frame('startup', kind=Kind.EVENT)
-            await shutdown_handler(shutdown_frame)
-
-    async def _cancel_spawned_tasks(self):
-        if self._transport and self._transport.connected:
-            await self.close()
-        for task_id, task in self._spawned_tasks.items():
-            logger.debug(f'Cancelling task {task_id}')
-            task.cancel()
-
-    async def _recv_loop(self):
-        try:
-            while self._connected:
-                frame = await self._transport.recv()
-                await self._frame_handler(frame)
-        except CancelledError:
-            logger.debug('Receive loop cancelled')
-        except (ConnectionError, Exception) as e:
-            # logger.exception(e)
-            logger.warning(f'Unable to receive frames, will reconnect.')
-            await self._reconnect()
-
-    async def _frame_handler(self, frame) -> None:
-        kind = frame.kind
-        name = frame.name
-        if kind == Kind.COMMAND:
-            if name in self._handlers_command:
-                handler = self._handlers_command[name]
-            elif '*' in self._handlers_command:
-                handler = self._handlers_command['*']
-            else:
-                logger.warning(f'Unhandled COMMAND: {frame.name} {frame.data}')
-                return
-        elif kind == Kind.EVENT:
-            if name in self._handlers_event:
-                handler = self._handlers_event[name]
-            elif '*' in self._handlers_event:
-                handler = self._handlers_event['*']
-            else:
-                logger.warning(f'Unhandled EVENT: {frame.name} {frame.data}')
-                return
-        else:
-            raise KeyError(f'Unknown kind {kind} in {name}')
-        self.spawn(handler(frame), name=f'frame-handler-{frame.name}')
+    ### Run/Start/Stop
 
     def run(self,
             endpoint: Optional[str] = '',
             token: Optional[str] = '',
-            join_spaces=True,
+            join_all_spaces=True,
             loop: Optional[AbstractEventLoop] = None,
-            shutdown_event: Optional[Event] = None) -> None:
+            shutdown_trigger: Optional[Event] = None,
+            transport: Optional[BaseTransport] = None) -> None:
         logger.info(f'Running agent {self.name}')
         self._endpoint = endpoint
         self._token = token
-        self._join_spaces = join_spaces
-        self._loop = loop or asyncio.new_event_loop()
-        self._loop.run_until_complete(self.start(shutdown_event))
+        self._transport = transport
+        self._join_all_spaces = join_all_spaces
+        if shutdown_trigger:
+            self._loop = loop or asyncio.get_event_loop()
+        else:
+            self._loop = loop or asyncio.new_event_loop()
+        self._loop.run_until_complete(self.start(shutdown_trigger))
 
-    def stop(self) -> None:
-        logger.info(f'Stopping agent {self.name}')
-        self.shutdown_event.set()
-
-    async def start(self, shutdown_event: Optional[Event] = None) -> None:
+    async def start(self, shutdown_trigger: Optional[Event] = None) -> None:
+        logger.info(f'Starting agent {self.name}')
         self._loop = self._loop or asyncio.get_event_loop()
-        self.shutdown_event = shutdown_event or Event()
         self._loop.add_signal_handler(SIGINT, self._sigint_handler)
         self._loop.add_signal_handler(SIGTERM, self._sigterm_handler)
         self._loop.add_signal_handler(SIGINFO, self._siginfo_handler)
-        logger.info(f'Starting agent {self.name}')
+        self._shutdown_trigger = shutdown_trigger or Event()
+        self._send_queue = Queue()
+        self._scheduler = AsyncIOScheduler()
+        self._scheduler.add_job(self._ensure_connection, 'interval', seconds=5)
+        self._scheduler.start()
+        logger.info(f'Agent {self.name} is running.')
         self._running = True
-        if self._endpoint and self._token:
-            await self.connect()
-        await self._start_interval_tasks()
+        await self._ensure_connection()
         await self._run_startup_handler()
-        await self.shutdown_event.wait()
-        self._running = False
-        logger.info(f'Shutting down agent {self.name}')
-        self._keep_connecting = False
+        await self._start_interval_handlers()
+        await self._shutdown_trigger.wait()
+        logger.info(f'Agent {self.name} is stopping.')
         await self._run_shutdown_handler()
-        await self._cancel_spawned_tasks()
+        await self._close_connection()
+        await self._cancel_async_tasks()
+        self._running = False
 
-    def spawn(self, coro, name='') -> Tuple[str, Task]:
-        async def watch(task_id, coro):
-            try:
-                await coro
-            except CancelledError:
-                pass
-            except Exception as e:
-                logger.exception(e)
-                self.stop()
-            finally:
-                del self._spawned_tasks[task_id]
-        random_id = ''.join([random.choice(string.ascii_letters + string.digits) for n in range(6)])
-        if name in ['recv-loop'] or name.startswith('interval-task'):
-            task_id = name
+    def stop(self) -> None:
+        logger.info(f'Stopping agent {self.name}')
+        self._scheduler.pause()
+        self._shutdown_trigger.set()
+
+    ### Asynchronous Tasks
+
+    async def watch(self, name, coro):
+        try:
+            await coro
+        except CancelledError:
+            logger.debug(f'Task {name} was cancelled.')
+        except Exception as e:
+            logger.exception(e)
+            self.stop()
+        finally:
+            del self._async_tasks[name]
+
+    def spawn(self, name, coro, ensure_single_instance=False):
+        if ensure_single_instance and name in self._async_tasks:
+            logger.fatal(f'Could not spawn {name} as another instance is already running.')
+            self.stop()
+        elif not ensure_single_instance:
+            name = name + '-' + random_string(6)
+        task = self._loop.create_task(self.watch(name, coro))
+        self._async_tasks.update({name: task})
+        return name, task
+
+    async def _cancel_async_tasks(self):
+        for task_id, task in self._async_tasks.items():
+            logger.debug(f'Cancelling task {task_id}')
+            task.cancel()
+
+    ### Connection
+
+    async def _ensure_connection(self):
+        logger.debug('Checking connection status')
+        if self._connected:
+            logger.debug('Agent is connected')
+            return
+        if not (self._endpoint and self._token):
+            logger.debug('Skip connecting as endpoint and token not provided')
+            return
+        if not self._transport:
+            self._transport = select_transport(self._endpoint)
+        self._connection = self._transport()
+        try:
+            await self._connection.connect(
+                endpoint=self._endpoint,
+                token=self._token)
+            self._connected = True
+        except PermissionError:
+            logger.fatal(f'Login failed when connecting to {self._endpoint} with token {self._token!r}')
+            await self._connection.close()
+            self.stop()
+        except Exception as e:
+            logger.info(f'Unable to connect to {self._endpoint}, will try again later.')
+            return
+        try:
+            self.spawn(
+                'frame-receive-loop',
+                self._frame_receive_loop(),
+                ensure_single_instance=True)
+            if self._joined_spaces:
+                await self.join(self._joined_spaces)
+            elif self._join_all_spaces:
+                await self.join('*')
+            self.spawn(
+                'frame-send-loop',
+                self._frame_send_loop(),
+                ensure_single_instance=True)
+        except Exception as e:
+            logger.exception(e)
+            self.stop()
+
+    async def _frame_receive_loop(self):
+        try:
+            while self._connected:
+                frame = await self._connection.recv()
+                await self.handle_frame(frame)
+        except CancelledError:
+            logger.debug('Receive loop cancelled')
+        except ConnectionError:
+            logger.warning('Connection was closed.')
+            self._connected = False
+
+    async def _frame_send_loop(self):
+        try:
+            while self._connected:
+                frame = await self._send_queue.get()
+                await self._connection.send(frame)
+        except CancelledError:
+            logger.debug('Receive loop cancelled')
+        except ConnectionError:
+            logger.warning('Connection was closed.')
+            self._connected = False
+
+    async def _close_connection(self):
+        if not self._connected:
+            logger.warning('Called close on a disconnected connection.')
+            return
+        await self._connection.close()
+
+    ### Send Frames
+
+    async def send(self, frame: Frame, queue=True):
+        if not (self._endpoint and self._token):
+            logger.debug('Agent not connected, handling sent frame locally')
+            await self.handle_frame(frame)
+            return
+        if queue:
+            logger.debug('Queue frame for remote server')
+            await self._send_queue.put(frame)
         else:
-            task_id = name + '-' + random_id
-        task = self._loop.create_task(watch(task_id, coro))
-        self._spawned_tasks.update({task_id: task})
-        return task_id, task
+            logger.debug('Sending frame to remote server')
+            try:
+                await self._connection.send(frame)
+            except ConnectionError:
+                logger.warning('Connection was closed.')
+                self._connected = False
+
+    async def command(self, _name: str, _queue=False, **_data):
+        frame = Frame(_name, kind=Kind.COMMAND, data=_data)
+        await self.send(frame, queue=_queue)
+
+    async def emit(self, _name: str, **_data):
+        frame = Frame(_name, kind=Kind.EVENT, data=_data)
+        await self.send(frame)
+
+    ### Protocol Commands
+
+    async def join(self, spaces):
+        spaces = clean_space_names(spaces)
+        logger.info(f'Joining spaces: {spaces!r}')
+        [self._joined_spaces.add(s) for s in spaces]
+        await self.command('join', spaces=list(spaces))
+
+    async def leave(self, spaces):
+        spaces = clean_space_names(spaces)
+        logger.info(f'Leaving spaces: {spaces!r}')
+        [self._joined_spaces.remove(s) for s in spaces]
+        await self.command('leave', spaces=list(spaces))
+
+    ### Frame Handlers
 
     def on_interval(self, _name: str, interval: float):
         def wrapper(func):
-            if _name in self._handlers_interval:
-                raise KeyError(f'Handler already set for {_name!r}')
-
-            async def run_on_interval():
-                count = 1
-                while self._running:
-                    await asyncio.sleep(interval)  # pragma: no cover
-                    frame = Frame('interval-elapsed', kind=Kind.EVENT, data={'count': count})
-                    await func(frame)
-                    count += 1
-            self._handlers_interval[_name] = run_on_interval
+            if _name in self._interval_handlers:
+                raise KeyError(f'Interval handler already set for {_name!r}')
+            self._interval_handlers[(_name, interval)] = func
             return func
+
+        return wrapper
+
+    def on_command(self, _name):
+        def wrapper(func):
+            if _name in self._command_handlers:
+                raise KeyError(f'Command handler already set for {_name!r}')
+            self._command_handlers[_name] = func
+            return func
+
         return wrapper
 
     def on_event(self, _name):
         def wrapper(func):
-            if _name in self._handlers_event:
-                raise KeyError(f'Handler already set for {_name!r}')
-            self._handlers_event[_name] = func
+            if _name in self._event_handlers:
+                raise KeyError(f'Event handler already set for {_name!r}')
+            self._event_handlers[_name] = func
             return func
 
         return wrapper
 
-    async def event(self, _name, **_data):
-        frame = Frame(_name, kind=Kind.EVENT, data=_data)
-        if not self._transport and _name in self._handlers_event:
-            handler = self._handlers_event[_name]
-            self.spawn(handler(frame))
+    async def get_handler(self, frame: Frame):
+        kind = frame.kind
+        name = frame.name
+        if kind == Kind.COMMAND:
+            handlers = self._command_handlers
+        elif kind == Kind.EVENT:
+            handlers = self._event_handlers
         else:
-            await self.send(frame)
-
-    async def send(self, frame):
-        try:
-            await self._transport.send(frame)
-        except Exception as e:
-            # logger.exception(e)
-            logger.warning(f'Unable to send frame {frame.name}, will reconnect.')
-            await self._reconnect()
-
-    async def _reconnect(self):
-        if self._connecting:
+            raise KeyError(f'Unknown kind {kind} in {name}')
+        if name in handlers:
+            handler = handlers[name]
+        elif '*' in handlers:
+            handler = handlers['*']
+        else:
+            logger.warning(f'Unhandled frame: {frame.name} {frame.data}')
             return
-        await self.close()
-        await self.connect()
+        return handler
 
-    async def connect(self,
-                      endpoint: Optional[str] = '',
-                      token: Optional[str] = '',
-                      transport: Optional[BaseTransport] = None):
-        if self._connecting:
+    async def handle_frame(self, frame: Frame):
+        kind = frame.kind
+        name = frame.name
+        handler = await self.get_handler(frame)
+        if not handler:
             return
-        self._connecting = True
-        endpoint = endpoint or self._endpoint
-        token = token or self._token
-        self._endpoint = endpoint
-        self._token = token
-        self._given_transport = transport
-        transport = transport or self._given_transport
-        if transport:
-            self._transport = transport
-        elif endpoint.startswith('queue://'):
-            self._transport = QueueTransport()
-        elif endpoint.startswith('ws://') or endpoint.startswith('wss://'):
-            self._transport = WebsocketTransport()
-        elif self._transport:
-            pass  # Set in run()
-        else:
-            raise RuntimeError(f'Unable to select a transport for endpoint {endpoint!r}')
-        await self._wait_for_connection()
-        self._connected = True
-        self._connecting = False
-        self.spawn(self._recv_loop(), name='recv-loop')
-        if self._spaces:
-            await self.join(self._spaces)
-        elif self._join_spaces:
-            await self.join('*')
+        self.spawn(
+            f'handler-{frame.name}-{frame.uuid}', 
+            self._run_handler(handler, frame),
+            ensure_single_instance=True)
 
-    async def _wait_for_connection(self):
-        while self._keep_connecting:
-            try:
-                await self._transport.connect(self._endpoint, self._token)
-                break
-            except Exception as e:
-                # logger.exception(e)
-                logger.warning(f'Unable to connect, will retry.')
-                await asyncio.sleep(3)
+    async def _run_handler(self, handler, frame: Frame):
+        response = await handler(frame)
+        if not response:
+            return
+        logger.debug(f'Handler for frame {frame.name} returned response {response!r}')
 
-    async def close(self):
-        await self._transport.close()
-        self._connected = False
-        if 'recv-loop' in self._spawned_tasks:
-            self._spawned_tasks['recv-loop'].cancel()
+    async def _start_interval_handlers(self):
+        for int_spec, int_task in self._interval_handlers.items():
+            name, interval = int_spec
+            logger.debug(f'Starting interval handler: {name} @ {interval} seconds.')
+            self._scheduler.add_job(int_task, 'interval', seconds=interval)
 
-    async def join(self, spaces):
-        if isinstance(spaces, str):
-            spaces = {s.strip() for s in spaces.split(',')}
-        else:
-            spaces = set(spaces)
-        [self._spaces.add(s) for s in spaces]
-        logger.warning(f'Joining spaces {spaces}')
-        frame = Frame('join', kind=Kind.COMMAND, data={'spaces': list(spaces)})
-        await self.send(frame)
+    async def _run_startup_handler(self):
+        if 'startup' in self._event_handlers:
+            logger.debug(f'Running startup event handler.')
+            startup_handler = self._event_handlers['startup']
+            startup_frame = Frame('startup', kind=Kind.EVENT)
+            await startup_handler(startup_frame)
 
-    async def leave(self, spaces):
-        if isinstance(spaces, str):
-            spaces = {s.strip() for s in spaces.split(',')}
-        else:
-            spaces = set(spaces)
-        [self._spaces.remove(s) for s in spaces]
-        logger.warning(f'Leaving spaces {spaces}')
-        frame = Frame('leave', kind=Kind.COMMAND, data={'spaces': list(spaces)})
-        await self.send(frame)
+    async def _run_shutdown_handler(self):
+        if 'shutdown' in self._event_handlers:
+            logger.debug(f'Running shutdown event handler.')
+            shutdown_handler = self._event_handlers['shutdown']
+            shutdown_frame = Frame('shutdown', kind=Kind.EVENT)
+            await shutdown_handler(shutdown_frame)

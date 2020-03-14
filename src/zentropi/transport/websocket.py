@@ -20,7 +20,7 @@ class WebsocketTransport(BaseTransport):
         await self.connection.send(auth_frame.to_json())
         auth_ack = await self.recv()
         if not auth_ack.name == 'login-ok':
-            raise ConnectionError(f'Unable to connect to {endpoint}, got {auth_ack.to_dict()}')
+            raise PermissionError(f'Unable to connect to {endpoint}, got {auth_ack.to_dict()}')
         self.connected = True
 
     async def close(self):
@@ -29,7 +29,10 @@ class WebsocketTransport(BaseTransport):
         self.token = None
 
     async def send(self, frame: Frame) -> None:
-        await self.connection.send(frame.to_json())
+        try:
+            await self.connection.send(frame.to_json())
+        except Exception as e:
+            raise ConnectionError('Websocket was closed.') from e
 
     async def recv(self) -> Frame:
         try:
