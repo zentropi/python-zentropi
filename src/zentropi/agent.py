@@ -65,6 +65,7 @@ class Agent(object):
         self._interval_handlers = {}
         self._event_handlers = {}
         self._command_handlers = {}
+        self._message_handlers = {}
         self._send_queue = None
 
     ### Logging
@@ -269,6 +270,14 @@ class Agent(object):
         frame = Frame(_name, kind=Kind.EVENT, data=_data)
         await self.send(frame)
 
+    event = emit
+
+    async def message(self, _name, text='', locale='en_US', **_data):
+        meta = {'locale': locale}
+        _data.update({'text': text})
+        frame = Frame(_name, kind=Kind.MESSAGE, data=_data, meta=meta)
+        await self.send(frame)
+
     ### Protocol Commands
 
     async def join(self, spaces):
@@ -312,6 +321,15 @@ class Agent(object):
 
         return wrapper
 
+    def on_message(self, _name):
+        def wrapper(func):
+            if _name in self._message_handlers:
+                raise KeyError(f'Event handler already set for {_name!r}')
+            self._message_handlers[_name] = func
+            return func
+
+        return wrapper
+
     async def get_handler(self, frame: Frame):
         kind = frame.kind
         name = frame.name
@@ -319,6 +337,8 @@ class Agent(object):
             handlers = self._command_handlers
         elif kind == Kind.EVENT:
             handlers = self._event_handlers
+        elif kind == Kind.MESSAGE:
+            handlers = self._message_handlers
         else:
             raise KeyError(f'Unknown kind {kind} in {name}')
         if name in handlers:
