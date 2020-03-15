@@ -112,7 +112,8 @@ class Agent(object):
             join_all_spaces=True,
             loop: Optional[AbstractEventLoop] = None,
             shutdown_trigger: Optional[Event] = None,
-            transport: Optional[BaseTransport] = None) -> None:
+            transport: Optional[BaseTransport] = None,
+            handle_signals=True) -> None:
         logger.info(f'Running agent {self.name}')
         self._endpoint = endpoint
         self._token = token
@@ -122,14 +123,34 @@ class Agent(object):
             self._loop = loop or asyncio.get_event_loop()
         else:
             self._loop = loop or asyncio.new_event_loop()
-        self._loop.run_until_complete(self.start(shutdown_trigger))
+        self._loop.run_until_complete(self.start(
+            endpoint=endpoint,
+            token=token,
+            join_all_spaces=join_all_spaces,
+            loop=loop,
+            shutdown_trigger=shutdown_trigger,
+            transport=transport,
+            handle_signals=handle_signals,
+            ))
 
-    async def start(self, shutdown_trigger: Optional[Event] = None) -> None:
+    async def start(self,
+            endpoint: Optional[str] = '',
+            token: Optional[str] = '',
+            join_all_spaces=True,
+            loop: Optional[AbstractEventLoop] = None,
+            shutdown_trigger: Optional[Event] = None,
+            transport: Optional[BaseTransport] = None,
+            handle_signals=True) -> None:
         logger.info(f'Starting agent {self.name}')
+        self._endpoint = endpoint
+        self._token = token
+        self._transport = transport
+        self._join_all_spaces = join_all_spaces
         self._loop = self._loop or asyncio.get_event_loop()
-        self._loop.add_signal_handler(SIGINT, self._sigint_handler)
-        self._loop.add_signal_handler(SIGTERM, self._sigterm_handler)
-        self._loop.add_signal_handler(SIGINFO, self._siginfo_handler)
+        if handle_signals:
+            self._loop.add_signal_handler(SIGINT, self._sigint_handler)
+            self._loop.add_signal_handler(SIGTERM, self._sigterm_handler)
+            self._loop.add_signal_handler(SIGINFO, self._siginfo_handler)
         self._shutdown_trigger = shutdown_trigger or Event()
         self._send_queue = Queue()
         self._scheduler = AsyncIOScheduler()
