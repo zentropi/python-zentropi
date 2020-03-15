@@ -19,6 +19,7 @@ from . import KB
 from . import configure_logging
 from .frame import Frame
 from .kind import Kind
+from .mdns import resolve_zeroconf_address
 from .transport.base import BaseTransport
 from .transport.queue import QueueTransport
 from .transport.websocket import WebsocketTransport
@@ -221,9 +222,18 @@ class Agent(object):
         if self._connected:
             logger.debug('Agent is connected')
             return
-        if not (self._endpoint and self._token):
+        if not self._endpoint and not self._token:
             logger.debug('Skip connecting as endpoint and token not provided')
             return
+        if not self._endpoint and self._token:
+            try:
+                self._endpoint = resolve_zeroconf_address(name='zencelium', schema='ws')
+                logger.info(f'Found server through zeroconf at {self._endpoint}')
+            except Exception as e:
+                logger.fatal('Unable to resolve address through zeroconf')
+                self.stop()
+                return
+                # raise ConnectionError('Unable to resolve address through zeroconf')
         if not self._transport:
             self._transport = select_transport(self._endpoint)
         self._connection = self._transport()
@@ -290,7 +300,7 @@ class Agent(object):
 
     async def _close_connection(self):
         if not self._connected:
-            logger.warning('Called close on a disconnected connection.')
+            logger.debug('Called close on a disconnected connection.')
             return
         await self._connection.close()
 
@@ -322,7 +332,7 @@ class Agent(object):
 
     event = emit
 
-    async def message(self, _name, text='', locale='en_US', **_data):
+    async def message(self, _name: str, text='', locale='en_US', **_data):
         meta = {'locale': locale}
         _data.update({'text': text})
         frame = Frame(_name, kind=Kind.MESSAGE, data=_data, meta=meta)
@@ -345,6 +355,17 @@ class Agent(object):
             return response.data
         finally:
             del self._response_wait_queues[frame.uuid]
+
+    ### Standard frame formatters
+
+    async def measure(self, _name: str, value: float, unit: str):
+        await self.emit(_name, value=value, unit=unit)
+
+    async def notify(self, _message: str, **_data):
+        await self.message('notification', text=_message, **_data)
+
+    async def alert(self, _message: str, **_data):
+        await self.message('alert', text=_message, **_data)
 
     ### Protocol Commands
 
