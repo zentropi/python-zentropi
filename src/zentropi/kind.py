@@ -10,6 +10,8 @@ class Kind(IntEnum):
     MESSAGE = 3
     REQUEST = 4
     RESPONSE = 5
+    INTERVAL = 15
+
 
 
 KIND_VALUES = {

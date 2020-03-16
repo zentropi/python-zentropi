@@ -22,7 +22,7 @@ class Frame(object):
         Frame constructor.
         """
         self._name = name
-        self._kind = kind or Kind.EVENT
+        self._kind = Kind(kind) or Kind.EVENT
         self._uuid = uuid or uuid4().hex
         self._data = data
         self._meta = meta

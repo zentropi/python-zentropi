@@ -5,7 +5,7 @@ a = Agent('random-value')
 
 
 @a.on_interval('random-value', 2)
-async def random_value(frame):
+async def random_value():
     await a.event(
         'random-value', 
         value=random.choice(range(20, 80)))
@@ -13,5 +13,5 @@ async def random_value(frame):
 
 a.run(
     'ws://localhost:26514/',
-    token='test-token',
+    token='dfa50132fcea4105a69cba3c1424429b',
 )

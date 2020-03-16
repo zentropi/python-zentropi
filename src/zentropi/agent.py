@@ -17,6 +17,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from . import KB
 from . import configure_logging
+from .base_agent import BaseAgent
 from .frame import Frame
 from .kind import Kind
 from .mdns import resolve_zeroconf_address
@@ -51,7 +52,7 @@ def clean_space_names(spaces):
     return spaces
 
 
-class Agent(object):
+class Agent(BaseAgent):
     def __init__(self, name: str) -> None:
         self.name = name
         self._scheduler = None
@@ -65,28 +66,10 @@ class Agent(object):
         self._join_all_spaces = True
         self._joined_spaces = set()
         self._running = False
-        self._async_tasks = {}
-        self._interval_handlers = {}
-        self._event_handlers = {}
-        self._command_handlers = {}
-        self._message_handlers = {}
-        self._request_handlers = {}
         self._send_queue = None
         self._frame_max_size = 1 * KB
         self._response_wait_queues = {}
-
-    ### Logging
-
-    def configure_logging(self,
-                          log_file='',
-                          log_level='warning'):
-        if isinstance(log_level, str):
-            log_level = getattr(logging, log_level.upper())
-        if not log_file:
-            log_file = 'zentropi-agent-{}.log'.format(self.name)
-        configure_logging(
-            log_file=log_file,
-            log_level=log_level)
+        super().__init__()
 
     ### Signal Handling
 
@@ -166,7 +149,7 @@ class Agent(object):
         logger.info(f'Agent {self.name} is stopping.')
         await self._run_shutdown_handler()
         await self._close_connection()
-        await self._cancel_async_tasks()
+        await self.cancel_spawned_tasks()
         self._running = False
 
     def stop(self) -> None:
@@ -176,41 +159,11 @@ class Agent(object):
 
     ### Asynchronous Tasks
 
-    async def watch(self, name, coro):
-        try:
-            await coro
-        except CancelledError:
-            logger.debug(f'Task {name} was cancelled.')
-        except Exception as e:
-            logger.exception(e)
-            self.stop()
-        finally:
-            if name in self._async_tasks:
-                del self._async_tasks[name]
-
-    def spawn(self, name, coro, ensure_single_instance=False):
-        if ensure_single_instance and name in self._async_tasks:
-            logger.fatal(f'Could not spawn {name} as another instance is already running.')
-            self.stop()
-        elif not ensure_single_instance:
-            name = name + '-' + random_string(6)
-        task = self._loop.create_task(self.watch(name, coro))
-        self._async_tasks.update({name: task})
-        return name, task
-
-    async def _cancel_async_tasks(self):
-        tasks = []
-        for task_id, task in self._async_tasks.items():
-            logger.debug(f'Cancelling task {task_id}')
-            tasks.append(task)
-            task.cancel()
-        await asyncio.gather(*tasks)
-
     async def _cancel_send_recv_loops(self):
         tasks = []
         for name in {'frame-send-loop', 'frame-receive-loop'}:
-            if name in self._async_tasks:
-                task = self._async_tasks[name]
+            if name in self._spawned_tasks:
+                task = self._spawned_tasks[name]
                 tasks.append(task)
                 task.cancel()
         await asyncio.gather(*tasks)
@@ -254,7 +207,7 @@ class Agent(object):
             self.spawn(
                 'frame-receive-loop',
                 self._frame_receive_loop(),
-                ensure_single_instance=True)
+                single=True)
             await self.filter_frames()
             if self._joined_spaces:
                 await self.join(self._joined_spaces)
@@ -263,7 +216,7 @@ class Agent(object):
             self.spawn(
                 'frame-send-loop',
                 self._frame_send_loop(),
-                ensure_single_instance=True)
+                single=True)
         except Exception as e:
             logger.exception(e)
             self.stop()
@@ -388,88 +341,20 @@ class Agent(object):
         filters['request'] = list(self._request_handlers.keys())
         await self.command('filter', names=filters, size=self._frame_max_size)
 
-    ### Frame Handlers
-
-    def on_interval(self, _name: str, interval: float):
-        def wrapper(func):
-            if _name in self._interval_handlers:
-                raise KeyError(f'Interval handler already set for {_name!r}')
-            self._interval_handlers[(_name, interval)] = func
-            return func
-
-        return wrapper
-
-    def on_command(self, _name):
-        def wrapper(func):
-            if _name in self._command_handlers:
-                raise KeyError(f'Command handler already set for {_name!r}')
-            self._command_handlers[_name] = func
-            return func
-
-        return wrapper
-
-    def on_event(self, _name):
-        def wrapper(func):
-            if _name in self._event_handlers:
-                raise KeyError(f'Event handler already set for {_name!r}')
-            self._event_handlers[_name] = func
-            return func
-
-        return wrapper
-
-    def on_message(self, _name):
-        def wrapper(func):
-            if _name in self._message_handlers:
-                raise KeyError(f'Event handler already set for {_name!r}')
-            self._message_handlers[_name] = func
-            return func
-
-        return wrapper
-
-    def on_request(self, _name):
-        def wrapper(func):
-            if _name in self._request_handlers:
-                raise KeyError(f'Event handler already set for {_name!r}')
-            self._request_handlers[_name] = func
-            return func
-
-        return wrapper
-
-    async def get_handler(self, frame: Frame):
-        kind = frame.kind
-        name = frame.name
-        if kind == Kind.COMMAND:
-            handlers = self._command_handlers
-        elif kind == Kind.EVENT:
-            handlers = self._event_handlers
-        elif kind == Kind.MESSAGE:
-            handlers = self._message_handlers
-        elif kind == Kind.REQUEST:
-            handlers = self._request_handlers
-        else:
-            raise KeyError(f'Unknown kind {kind} in {name}')
-        if name in handlers:
-            handler = handlers[name]
-        elif '*' in handlers:
-            handler = handlers['*']
-        else:
-            logger.warning(f'Unhandled frame: {frame.name} {frame.data}')
-            return
-        return handler
-
     async def handle_frame(self, frame: Frame):
         kind = frame.kind
         name = frame.name
-        handler = await self.get_handler(frame)
-        if not handler:
+        if not self.get_handler(kind, name):
             return
         self.spawn(
             f'handler-{frame.name}-{frame.uuid}',
-            self._run_handler(handler, frame),
-            ensure_single_instance=True)
+            self.handle_response(frame),
+            single=True)
 
-    async def _run_handler(self, handler, frame: Frame):
-        response = await handler(frame)
+    async def handle_response(self, frame: Frame):
+        kind = frame.kind
+        name = frame.name
+        response = await self.run_handler(kind, name, frame, timeout=10)
         if not response:
             return
         logger.debug(f'Handler for frame {frame.name} returned response {response!r}')
@@ -479,8 +364,8 @@ class Agent(object):
             await self.send(frame.reply(data={'_response': response}))
 
     async def _start_interval_handlers(self):
-        for int_spec, int_task in self._interval_handlers.items():
-            name, interval = int_spec
+        for name, int_task in self._interval_handlers.items():
+            interval = int_task.interval
             logger.debug(f'Starting interval handler: {name} @ {interval} seconds.')
             self._scheduler.add_job(int_task, 'interval', seconds=interval)
 
