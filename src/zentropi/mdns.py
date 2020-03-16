@@ -10,7 +10,7 @@ def resolve_zeroconf_address(name='zencelium', schema='ws'):
     finally:
         zeroconf.close()
     if not sinfo:
-        raise Exception('Unable to find server through Zeroconf.')
+        raise ConnectionError('Unable to find server through Zeroconf.')
     addr = bytes_to_ipv4_dotted(sinfo.addresses[0])
     schema = schema + ('s' if sinfo.properties.get('tls') else '')
     return f'{schema}://{addr}:{sinfo.port}/'

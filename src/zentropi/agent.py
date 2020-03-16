@@ -42,6 +42,7 @@ def select_transport(endpoint: str):
         return WebsocketTransport
     elif endpoint.startswith('dgram://'):
         return DatagramTransport
+    raise ValueError(f'Unknown schema for endpoint: {endpoint}')
 
 
 def clean_space_names(spaces):
@@ -76,18 +77,18 @@ class Agent(BaseAgent):
 
     ### Signal Handling
 
-    def _siginfo_handler(self, *args) -> None:  # pragma: no cover
+    def _siginfo_handler(self, *args) -> None:
         print(f'Agent {self.name}.')
         print(f'Running {len(self._async_tasks)} tasks:')
         for task_id in self._async_tasks:
             print(f'\t{task_id}')
 
-    def _sigint_handler(self, *args) -> None:  # pragma: no cover
+    def _sigint_handler(self, *args) -> None:
         print('')
         logger.warning('Received keyboard interrupt.')
         self._shutdown_trigger.set()
 
-    def _sigterm_handler(self, *args) -> None:  # pragma: no cover
+    def _sigterm_handler(self, *args) -> None:
         logger.warning('Received termination signal.')
         self._shutdown_trigger.set()
 
