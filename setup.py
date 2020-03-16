@@ -70,6 +70,8 @@ setup(
         'click',
         'websockets',
         'apscheduler',
+        'zeroconf',
+        'asyncio_dgram',
         # eg: 'aspectlib==1.1.1', 'six>=1.7',
     ],
     extras_require={
