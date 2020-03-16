@@ -17,7 +17,8 @@ class WebsocketTransport(BaseTransport):
         self.endpoint = endpoint
         self.connection = await websockets.connect(endpoint)
         auth_frame = Frame('login', kind=Kind.COMMAND, data={'token': token})
-        await self.connection.send(auth_frame.to_json())
+        await self.send(auth_frame)
+        # await self.connection.send(auth_frame.to_json())
         auth_ack = await self.recv()
         if not auth_ack.name == 'login-ok':
             raise PermissionError(f'Unable to connect to {endpoint}, got {auth_ack.to_dict()}')

@@ -17,7 +17,7 @@ GB = 1024 * MB
 def configure_logging(log_file,
                       log_level=logging.WARNING,
                       file_size= 10 * MB,
-                      keep_logs=10):
+                      keep_logs=10):  # pragma: no cover
     global _root_logger_configured
     assert _root_logger_configured is False, 'root_logger is already configured!'
 

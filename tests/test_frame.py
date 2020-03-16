@@ -113,6 +113,12 @@ def test_frame_reply_with_meta():
     assert freply.meta.get('reply_to') == f.uuid
     assert freply.meta.get('test') == 'item'
 
+def test_frame_reply_for_request():
+    f = Frame('test-frame', kind=Kind.REQUEST)
+    freply = f.reply()
+    assert freply.meta.get('reply_to') == f.uuid
+    assert freply.kind == Kind.RESPONSE
+
 
 def test_delate_dict():
     inflated_dict = {'test': 'item', 'empty': ''}
@@ -130,7 +136,7 @@ def test_frame_validate_name_must_not_be_empty():
     Frame('     ')
 
 
-@pytest.mark.xfail(raises=TypeError)
+@pytest.mark.xfail(raises=ValueError)
 def test_frame_validate_kind_must_be_integer():
     Frame('test-frame', kind='event')
 

@@ -7,6 +7,10 @@ from .kind import KIND_VALUES
 from .kind import Kind
 
 
+def deflate_dict(frame_as_dict: dict) -> dict:
+    return {k: v for k, v in frame_as_dict.items() if v}
+
+
 class Frame(object):
     """Frame contains the information that is sent over wire
     between instances and agents.
@@ -22,7 +26,7 @@ class Frame(object):
         Frame constructor.
         """
         self._name = name
-        self._kind = kind or Kind.EVENT
+        self._kind = Kind(kind or  Kind.EVENT)
         self._uuid = uuid or uuid4().hex
         self._data = data
         self._meta = meta
@@ -34,12 +38,6 @@ class Frame(object):
             raise TypeError(f'Frame.name must be string, got {type(self._name)}')
         if not self._name.strip():
             raise ValueError(f'Frame.name must not be empty, got: {self._name!r}')
-
-        # kind
-        if not isinstance(self._kind, int):
-            raise TypeError(f'Frame.kind must be int, got {type(self._kind)}')
-        if self._kind not in KIND_VALUES:
-            raise ValueError(f'Frame.kind must be one of {KIND_VALUES}, got {self._kind}')
 
         # uuid
         if not isinstance(self._uuid, str):
@@ -111,6 +109,3 @@ class Frame(object):
             return Frame(name=self.name, kind=Kind.RESPONSE, data=data, meta=meta)
         return Frame(name=name or self.name, kind=self.kind, data=data, meta=meta)
 
-
-def deflate_dict(frame_as_dict: dict) -> dict:
-    return {k: v for k, v in frame_as_dict.items() if v}

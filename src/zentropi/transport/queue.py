@@ -26,3 +26,5 @@ class QueueTransport(BaseTransport):
 
     async def recv(self) -> Frame:
         return await self.queue_recv.get()
+
+    receive = recv

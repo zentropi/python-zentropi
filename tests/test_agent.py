@@ -1,225 +1,93 @@
 import asyncio
-from asyncio.coroutines import iscoroutinefunction
-from threading import Event
+from asyncio import Event
 
 import pytest
-
 from zentropi import Agent
+from zentropi.agent import clean_space_names
+from zentropi.agent import select_transport
+from zentropi.agent import random_string
+from zentropi.transport.base import BaseTransport
+from zentropi.transport.datagram import DatagramTransport
+from zentropi.transport.queue import QueueTransport
+from zentropi.transport.websocket import WebsocketTransport
 
 
-def test_agent_run_and_stop():
-    a = Agent('test-agent')
-    loop = asyncio.get_event_loop()
-
-    async def shutdown():
-        while not a._running:
-            await asyncio.sleep(0)
-        a.stop()
-    loop.create_task(shutdown())
-    a.run(loop=loop)
+def test_random_string():
+    rs = random_string(length=10)
+    assert len(rs) == 10
 
 
-def test_agent_run_and_shutdown():
-    a = Agent('test-agent')
-    loop = asyncio.get_event_loop()
-
-    async def shutdown():
-        while not a._running:
-            await asyncio.sleep(0)
-        a.shutdown_event.set()
-    loop.create_task(shutdown())
-    a.run(loop=loop)
+def test_select_transport_queue():
+    transport = select_transport('queue://')
+    assert transport == QueueTransport
 
 
-@pytest.mark.asyncio
-async def test_agent_start_and_stop():
-    a = Agent('test-agent')
-    asyncio.create_task(a.start())
-    await asyncio.sleep(0)
-    assert a._running is True
-    a.stop()
-    await asyncio.sleep(0)
-    assert a._running is False
+def test_select_transport_websocket():
+    transport = select_transport('ws://')
+    assert transport == WebsocketTransport
 
 
-@pytest.mark.asyncio
-async def test_agent_start_and_shutdown():
-    a = Agent('test-agent')
-    asyncio.create_task(a.start())
-    await asyncio.sleep(0)
-    assert a._running is True
-    a.shutdown_event.set()
-    await asyncio.sleep(0)
-    assert a._running is False
+def test_select_transport_websocket_tls():
+    transport = select_transport('wss://')
+    assert transport == WebsocketTransport
 
 
-@pytest.mark.asyncio
-async def test_agent_spawn():
-    stop_waiting = Event()
-
-    async def wait_a_sec():
-        await stop_waiting.wait()
-
-    a = Agent('test-agent')
-    asyncio.create_task(a.start())
-    await asyncio.sleep(0)
-    task_id, task = a.spawn(wait_a_sec())
-    assert task_id in a._spawned_tasks
-    assert task == a._spawned_tasks[task_id]
-    stop_waiting.set()
-    await asyncio.sleep(0)
-    assert task_id not in a._spawned_tasks
-    a.stop()
+def test_select_transport_datagram():
+    transport = select_transport('dgram://')
+    assert transport == DatagramTransport
 
 
-@pytest.mark.asyncio
-async def test_agent_spawn_exception_in_task():
-    stop_waiting = Event()
-
-    async def wait_a_sec():
-        await stop_waiting.wait()
-        raise Exception('boom')  # pragma: no cover
-
-    a = Agent('test-agent')
-    asyncio.create_task(a.start())
-    await asyncio.sleep(0)
-    task_id, task = a.spawn(wait_a_sec())
-    assert task_id in a._spawned_tasks
-    assert task == a._spawned_tasks[task_id]
-    stop_waiting.set()
-    await asyncio.sleep(0)
-    assert task_id not in a._spawned_tasks
-    await asyncio.sleep(0)
-    assert a._running is False
+@pytest.mark.xfail(raises=ValueError)
+def test_select_transport_invalid():
+    select_transport('boogie://')
 
 
-def test_on_interval_decorator_adds_handler():
-    a = Agent('test-agent')
+def test_clean_space_names_from_str():
+    spaces = clean_space_names('this, this, that, test')
+    assert spaces == {'this', 'that', 'test'}
 
-    @a.on_interval('test-interval', 4.2)
-    async def test_interval(frame):  # pragma: no cover
-        pass
-
-    assert a._handlers_interval['test-interval']
+    spaces = clean_space_names('this that test test')
+    assert spaces == {'this', 'that', 'test'}
 
 
-@pytest.mark.xfail(raises=KeyError)
-def test_on_interval_decorator_fails_on_duplicate_name():
-    a = Agent('test-agent')
+def test_clean_space_names_from_iterable():
+    spaces = clean_space_names(['this', 'that', 'that', 'test'])
+    assert spaces == {'this', 'that', 'test'}
 
-    @a.on_interval('test-interval', 4.2)
-    async def test_interval(frame):  # pragma: no cover
-        pass
 
-    assert a._handlers_interval['test-interval']
+def test_agent_init():
+    agent = Agent('test-agent')
+    assert agent.name == 'test-agent'
 
-    @a.on_interval('test-interval', 4.2)
-    async def test_interval_duplicate(frame):  # pragma: no cover
-        pass
-
+# def test_agent_run():
+#     import threading, time
+#     agent = Agent('test-agent')
+#     threaded_agent = threading.Thread(target=agent.run, kwargs={'handle_signals': False})
+#     threaded_agent.start()
+#     time.sleep(0.5)
+#     assert agent._running is True
+#     agent.stop()
+#     threaded_agent.join()
+#     assert agent._running is False
 
 @pytest.mark.asyncio
-async def test_on_interval_wrapper():
-    a = Agent('test-agent')
-    interval_handler_was_run = False
-
-    @a.on_interval('test-interval', 0)
-    async def test_interval(frame):  # pragma: no cover
-        nonlocal interval_handler_was_run
-        interval_handler_was_run = True
-        a.stop()
-
-    interval_handler = a._handlers_interval['test-interval']
-    assert iscoroutinefunction(interval_handler)
-    assert iscoroutinefunction(test_interval)
-
-    asyncio.create_task(a.start())
-    for _ in range(3):
-        await asyncio.sleep(0)
-    assert interval_handler_was_run is True
-
-
-def test_on_event_decorator_adds_handler():
-    a = Agent('test-agent')
-
-    @a.on_event('startup')
-    async def startup(frame):  # pragma: no cover
-        pass
-
-    assert a._handlers_event['startup']
-
-
-@pytest.mark.xfail(raises=KeyError)
-def test_on_event_decorator_fails_on_duplicate_name():
-    a = Agent('test-agent')
-
-    @a.on_event('startup')
-    async def startup(frame):  # pragma: no cover
-        pass
-
-    assert a._handlers_event['startup']
-
-    @a.on_event('startup')
-    async def startup_duplicate(frame):  # pragma: no cover
-        pass
-
+async def test_agent_stop_with_shutdown_trigger():
+    agent = Agent('test-agent')
+    shutdown_trigger = Event()
+    task = asyncio.create_task(agent.start(shutdown_trigger=shutdown_trigger))
+    await asyncio.sleep(0)
+    assert agent._running is True
+    assert agent._shutdown_trigger == shutdown_trigger
+    shutdown_trigger.set()
+    await asyncio.gather(task)
+    assert agent._running is False
 
 @pytest.mark.asyncio
-async def test_startup_handler_is_run():
-    a = Agent('test-agent')
-    startup_handler_was_run = False
-
-    @a.on_event('startup')
-    async def startup(frame):  # pragma: no cover
-        nonlocal startup_handler_was_run
-        startup_handler_was_run = True
-        a.stop()
-
-    asyncio.create_task(a.start())
-    for _ in range(3):
-        await asyncio.sleep(0)
-
-    assert startup_handler_was_run is True
-
-
-@pytest.mark.asyncio
-async def test_shutdown_handler_is_run():
-    a = Agent('test-agent')
-    shutdown_handler_was_run = False
-
-    @a.on_event('startup')
-    async def startup(frame):  # pragma: no cover
-        a.stop()
-
-    @a.on_event('shutdown')
-    async def shutdown(frame):  # pragma: no cover
-        nonlocal shutdown_handler_was_run
-        shutdown_handler_was_run = True
-
-    asyncio.create_task(a.start())
-    for _ in range(3):
-        await asyncio.sleep(0)
-
-    assert shutdown_handler_was_run is True
-
-
-@pytest.mark.asyncio
-async def test_event_handler_is_run():
-    a = Agent('test-agent')
-    test_event_handler_was_run = False
-
-    @a.on_event('startup')
-    async def startup(frame):  # pragma: no cover
-        await a.event('test')
-
-    @a.on_event('test')
-    async def test(frame):  # pragma: no cover
-        nonlocal test_event_handler_was_run
-        test_event_handler_was_run = True
-        a.stop()
-
-    asyncio.create_task(a.start())
-    for _ in range(3):
-        await asyncio.sleep(0)
-
-    assert test_event_handler_was_run is True
+async def test_agent_stop_with_stop():
+    agent = Agent('test-agent')
+    task = asyncio.create_task(agent.start())
+    await asyncio.sleep(0)
+    assert agent._running is True
+    agent.stop()
+    await asyncio.gather(task)
+    assert agent._running is False
