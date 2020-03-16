@@ -22,6 +22,7 @@ from .frame import Frame
 from .kind import Kind
 from .mdns import resolve_zeroconf_address
 from .transport.base import BaseTransport
+from .transport.datagram import DatagramTransport
 from .transport.queue import QueueTransport
 from .transport.websocket import WebsocketTransport
 
@@ -39,6 +40,8 @@ def select_transport(endpoint: str):
         return QueueTransport
     elif endpoint.startswith('ws://') or endpoint.startswith('wss://'):
         return WebsocketTransport
+    elif endpoint.startswith('dgram://'):
+        return DatagramTransport
 
 
 def clean_space_names(spaces):
