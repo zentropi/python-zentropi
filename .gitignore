@@ -72,3 +72,9 @@ docs/_build
 
 todo.txt
 _attic/
+
+examples/static/photos
+agents/files
+*.db-*
+*.db
+frames.log
