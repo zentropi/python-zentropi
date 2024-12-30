@@ -15,18 +15,22 @@ class Frame(object):
     """Frame contains the information that is sent over wire
     between instances and agents.
     """
-    __slots__ = ('_name', '_kind', '_uuid', '_meta', '_data')
 
-    def __init__(self, name: str,
-                 kind: Optional[int] = None,
-                 uuid: Optional[str] = None,
-                 data: Optional[Dict] = None,
-                 meta: Optional[Dict] = None) -> None:
+    __slots__ = ("_name", "_kind", "_uuid", "_meta", "_data")
+
+    def __init__(
+        self,
+        name: str,
+        kind: Optional[int] = None,
+        uuid: Optional[str] = None,
+        data: Optional[Dict] = None,
+        meta: Optional[Dict] = None,
+    ) -> None:
         """
         Frame constructor.
         """
         self._name = name
-        self._kind = Kind(kind or  Kind.EVENT)
+        self._kind = Kind(kind or Kind.EVENT)
         self._uuid = uuid or uuid4().hex
         self._data = data
         self._meta = meta
@@ -35,23 +39,23 @@ class Frame(object):
     def validate(self) -> None:
         # name
         if not isinstance(self._name, str):
-            raise TypeError(f'Frame.name must be string, got {type(self._name)}')
+            raise TypeError(f"Frame.name must be string, got {type(self._name)}")
         if not self._name.strip():
-            raise ValueError(f'Frame.name must not be empty, got: {self._name!r}')
+            raise ValueError(f"Frame.name must not be empty, got: {self._name!r}")
 
         # uuid
         if not isinstance(self._uuid, str):
-            raise TypeError(f'Frame.uuid must be string, got {type(self._uuid)}')
+            raise TypeError(f"Frame.uuid must be string, got {type(self._uuid)}")
         if not self._uuid.strip():
-            raise ValueError(f'Frame.uuid must not be empty, got: {self._name!r}')
+            raise ValueError(f"Frame.uuid must not be empty, got: {self._name!r}")
 
         # data
         if self._data is not None and not isinstance(self._data, dict):
-            raise TypeError(f'Frame.data must be dict, got {type(self._data)}')
+            raise TypeError(f"Frame.data must be dict, got {type(self._data)}")
 
         # meta
         if self._meta is not None and not isinstance(self._meta, dict):
-            raise TypeError(f'Frame.meta must be dict, got {type(self._meta)}')
+            raise TypeError(f"Frame.meta must be dict, got {type(self._meta)}")
 
     @property
     def name(self) -> str:
@@ -78,34 +82,34 @@ class Frame(object):
         return self._meta
 
     def to_dict(self) -> dict:
-        return deflate_dict({
-            'name': str(self.name),
-            'kind': int(self.kind),
-            'uuid': str(self.uuid),
-            'data': dict(self.data) if self.data else {},
-            'meta': dict(self.meta) if self.meta else {},
-        })
+        return deflate_dict(
+            {
+                "name": str(self.name),
+                "kind": int(self.kind),
+                "uuid": str(self.uuid),
+                "data": dict(self.data) if self.data else {},
+                "meta": dict(self.meta) if self.meta else {},
+            }
+        )
 
     @staticmethod
-    def from_dict(frame_as_dict: dict) -> 'Frame':
+    def from_dict(frame_as_dict: dict) -> "Frame":
         return Frame(**frame_as_dict)
 
     def to_json(self) -> str:
         return json.dumps(self.to_dict())
 
     @staticmethod
-    def from_json(frame_as_json) -> 'Frame':
+    def from_json(frame_as_json) -> "Frame":
         return Frame.from_dict(json.loads(frame_as_json))
 
-    def reply(self,
-              name: str = '',
-              data: Optional[Dict] = None,
-              meta: Optional[Dict] = None) -> 'Frame':
+    def reply(
+        self, name: str = "", data: Optional[Dict] = None, meta: Optional[Dict] = None
+    ) -> "Frame":
         if isinstance(meta, dict):
-            meta.update({'reply_to': self.uuid})
+            meta.update({"reply_to": self.uuid})
         else:
-            meta = {'reply_to': self.uuid}
+            meta = {"reply_to": self.uuid}
         if self.kind == Kind.REQUEST:
             return Frame(name=self.name, kind=Kind.RESPONSE, data=data, meta=meta)
         return Frame(name=name or self.name, kind=self.kind, data=data, meta=meta)
-
