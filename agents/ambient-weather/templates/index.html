@@ -36,7 +36,7 @@
                         <div class="metric-header">
                             <div class="metric-label">{{metric.label}}</div>
                             <div class="metric-value">
-                                <span class="value">
+                                <span class="value" data-metric="{{metric.key}}">
                                     {% if metric.format_value %}
                                     {{"%.1f"|format(current[metric.key])}}
                                     {% else %}
@@ -46,7 +46,9 @@
                                 <span class="unit">{{metric.unit}}</span>
                             </div>
                         </div>
-                        {{ sparklines[metric.key] | safe }}
+                        <div class="sparkline" data-metric="{{metric.key}}">
+                            {{ sparklines[metric.key] | safe }}
+                        </div>
                     </div>
                     {% endfor %}
                 </div>

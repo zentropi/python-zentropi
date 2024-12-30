@@ -3,15 +3,17 @@ import os
 import logging
 from typing import List
 
-from quart import Quart, request, render_template
+from quart import Quart, request, render_template, Response
 from zentropi import Agent
 import arrow
+import json
 
 from database import WeatherDB, WeatherData
 from sparkline import generate_sparkline
 
 AGENT_NAME = "ambient_weather"
 ENDPOINT = os.environ.get("ENDPOINT")
+TIMEZONE = os.environ.get("TIMEZONE")
 TOKEN = os.environ.get(f"{AGENT_NAME.upper()}_TOKEN")
 PASSKEY = os.environ.get("AMBIENT_WEATHER_PASSKEY")
 
@@ -32,6 +34,18 @@ def humanize_filter(timestamp):
 
 # Initialize database connection
 db = WeatherDB()
+
+# Add this after other global variables
+subscribers = set()
+
+
+async def broadcast(data):
+    if "weather" in data:
+        data["weather"]["timestamp_humanized"] = humanize_filter(
+            data["weather"]["date_utc"]
+        )
+    for queue in subscribers:
+        await queue.put(data)
 
 
 @agent.on_event("startup")
@@ -57,6 +71,22 @@ async def shutdown():
     agent.stop()
 
 
+@app.route("/events")
+async def events():
+    queue = asyncio.Queue()
+    subscribers.add(queue)
+
+    async def stream():
+        try:
+            while True:
+                data = await queue.get()
+                yield f"data: {json.dumps(data)}\n\n"
+        finally:
+            subscribers.remove(queue)
+
+    return Response(stream(), mimetype="text/event-stream")
+
+
 @app.route("/data")
 async def weather_webhook():
     args = request.args.to_dict()
@@ -66,6 +96,40 @@ async def weather_webhook():
     try:
         weather = WeatherData.from_dict(args)
         await db.store_weather(weather)
+
+        # Get last 24h data for sparklines
+        history = await db.get_history(24, 360)
+        metrics = {
+            "temperature_out": [],
+            "temperature_in": [],
+            "humidity_out": [],
+            "humidity_in": [],
+            "wind_speed": [],
+            "wind_gust": [],
+            "pressure_rel": [],
+            "pressure_abs": [],
+            "rain_hourly": [],
+            "rain_event": [],
+            "uv_index": [],
+            "solar_radiation": [],
+        }
+
+        for entry in reversed(history):
+            for metric in metrics:
+                metrics[metric].append(entry[metric])
+
+        sparklines = {
+            metric: generate_sparkline(values) for metric, values in metrics.items()
+        }
+
+        # Broadcast the update
+        await broadcast(
+            {
+                "weather": weather.to_dict(),
+                "sparklines": sparklines,
+            }
+        )
+
         await agent.emit(
             "current-weather",
             data=weather.to_dict(),
