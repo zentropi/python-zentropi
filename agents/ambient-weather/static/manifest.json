@@ -1,0 +1,16 @@
+{
+    "name": "Zentropi Farm Weather Station",
+    "short_name": "Zentropi Weather",
+    "description": "Local weather station dashboard",
+    "start_url": "/",
+    "display": "standalone",
+    "background_color": "#f8fafc",
+    "theme_color": "#f8fafc",
+    "icons": [
+        {
+            "src": "/static/icons/icon.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        }
+    ]
+}

@@ -281,4 +281,17 @@ async def index():
     )
 
 
+@app.route("/manifest.json")
+async def manifest():
+    return await app.send_static_file("manifest.json")
+
+
+@app.route("/service-worker.js")
+async def service_worker():
+    response = await app.send_static_file("service-worker.js")
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Content-Type"] = "application/javascript"
+    return response
+
+
 app.run(host="0.0.0.0", port=8022)
