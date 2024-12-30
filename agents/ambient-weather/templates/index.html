@@ -35,8 +35,8 @@
                     <div class="metric">
                         <div class="metric-header">
                             <div class="metric-label">{{metric.label}}</div>
-                            <div class="metric-value">
-                                <span class="value" data-metric="{{metric.key}}">
+                            <div class="metric-value" data-metric="{{metric.key}}">
+                                <span class="value">
                                     {% if metric.format_value %}
                                     {{"%.1f"|format(current[metric.key])}}
                                     {% else %}

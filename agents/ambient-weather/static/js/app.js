@@ -2,9 +2,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const evtSource = new EventSource('/events');
 
     function updateMetricValue(key, value, formatValue = false) {
-        const valueElement = document.querySelector(`[data-metric="${key}"] .value`);
-        if (valueElement) {
-            valueElement.textContent = formatValue ? value.toFixed(1) : value;
+        const metricElement = document.querySelector(`[data-metric="${key}"]`);
+        if (metricElement) {
+            const valueElement = metricElement.querySelector('.value');
+            if (valueElement) {
+                valueElement.textContent = formatValue ? value.toFixed(1) : value;
+            }
         }
     }
 
@@ -36,9 +39,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const sparklines = data.sparklines;
 
         for (const [key, value] of Object.entries(weather)) {
-            // Skip string formatted values and non-numeric values
-            if (!key.endsWith('_str') && typeof value === 'number') {
-                updateMetricValue(key, value, true);
+            // Update all numeric values with formatting
+            if (typeof value === 'number' && !key.endsWith('_str')) {
+                // Format value if it's a float, don't format if it's an integer (like UV index)
+                const shouldFormat = !Number.isInteger(value);
+                updateMetricValue(key, value, shouldFormat);
             }
         }
 
