@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', () => {
     const evtSource = new EventSource('/events');
+    const body = document.body;
 
     function updateMetricValue(key, value, formatValue = false) {
         const metricElement = document.querySelector(`[data-metric="${key}"]`);
@@ -22,6 +23,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const timestampElement = document.querySelector('.weather_updated_at');
         if (timestampElement) {
             timestampElement.textContent = humanizedTime;
+            body.classList.add('weather-updated');
+            setTimeout(() => body.classList.remove('weather-updated'), 1000);
         }
     }
 
@@ -32,6 +35,11 @@ document.addEventListener('DOMContentLoaded', () => {
             batteryIcon.classList.toggle('battery-low', !batteryOk);
         }
     }
+
+    evtSource.onopen = () => {
+        body.classList.add('sse-connected');
+        body.classList.remove('sse-disconnected');
+    };
 
     evtSource.onmessage = (event) => {
         const data = JSON.parse(event.data);
@@ -59,6 +67,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     evtSource.onerror = (error) => {
         console.error('EventSource failed:', error);
+        body.classList.remove('sse-connected');
+        body.classList.add('sse-disconnected');
         evtSource.close();
         // Try to reconnect after 5 seconds
         setTimeout(() => {

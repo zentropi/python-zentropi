@@ -51,6 +51,31 @@ header .weather_updated_at {
     padding: 0.5rem 1rem;
     background: rgba(0, 0, 0, 0.05);
     border-radius: 1rem;
+    transition: background-color 0.3s ease;
+}
+
+.sse-connected .weather_updated_at {
+    background: rgba(34, 197, 94, 0.2);
+    /* Light green background */
+}
+
+.sse-disconnected .weather_updated_at {
+    background: rgba(239, 68, 68, 0.2);
+    /* Light red background */
+}
+
+@keyframes updateGlow {
+    0% {
+        background: rgba(132, 204, 22, 0.4);
+    }
+
+    100% {
+        background: rgba(0, 0, 0, 0.05);
+    }
+}
+
+.weather-updated .weather_updated_at {
+    animation: updateGlow 1s ease-out;
 }
 
 body {
