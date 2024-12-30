@@ -5,7 +5,7 @@ from zentropi import Agent
 
 btn = None
 shutdown_event = asyncio.Event()
-a = Agent('led')
+a = Agent("led")
 
 
 def stop_agent(*_):
@@ -14,18 +14,32 @@ def stop_agent(*_):
 
 async def setup_gui():
     root = Tk()
+    root.title("LED Simulator")
+    root.minsize(200, 200)
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
-    window = Frame(root)
+
+    window = Frame(root, padx=20, pady=20)
     window.grid(row=0, column=0, sticky=(N, S, E, W))
     window.columnconfigure(0, weight=1)
     window.rowconfigure(0, weight=1)
+
     global btn
-    btn = Label(window, text='off', background="#888888")
-    btn.grid(row=0, column=0, sticky=(N, S, E, W))
+    btn = Label(
+        window,
+        text="OFF",
+        background="#444444",
+        foreground="#ffffff",
+        font=("Helvetica", 16, "bold"),
+        pady=40,
+        relief="raised",
+        borderwidth=2,
+    )
+    btn.grid(row=0, column=0, sticky=(N, S, E, W), padx=10, pady=10)
+
     menu = Menu(root)
     root.config(menu=menu)
-    menu.add_command(label='Exit', command=stop_agent)
+    menu.add_command(label="Exit", command=stop_agent)
     root.bind("<Control-q>", stop_agent)
     return root
 
@@ -40,27 +54,27 @@ async def tk_loop(root, interval=0.05):
             raise
 
 
-@a.on_event('switch-on')
-async def lef_on(frame):
-    print('led on')
-    btn.configure(background="#00aa00", text="on")
-    await a.event('led-on')
+@a.on_event("switch-on")
+async def led_on(frame):
+    print("led on")
+    btn.configure(background="#22c55e", foreground="#ffffff", text="ON")
+    await a.event("led-on")
 
 
-@a.on_event('switch-off')
+@a.on_event("switch-off")
 async def led_off(frame):
-    print('led off')
-    btn.configure(background="#888888", text="off")
-    await a.event('led-off')
+    print("led off")
+    btn.configure(background="#444444", foreground="#ffffff", text="OFF")
+    await a.event("led-off")
 
 
-@a.on_event('startup')
+@a.on_event("startup")
 async def start(frame):
     root = await setup_gui()
-    a.spawn(tk_loop(root))
+    a.spawn("tk_loop", tk_loop(root))
 
 
 a.run(
-    'ws://localhost:26514/',
-    token='test-token',
+    "ws://localhost:26514/",
+    token="test-token",
 )
