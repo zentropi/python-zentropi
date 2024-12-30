@@ -1,0 +1,297 @@
+:root {
+    --bg-color: #f8fafc;
+    --card-bg: white;
+    --text-color: #1e293b;
+    --card-width: 400px;
+    --temperature-color: #ef4444;
+    --humidity-color: #3b82f6;
+    --wind-color: #8b5cf6;
+    --pressure-color: #10b981;
+    --rain-color: #0ea5e9;
+    --sun-color: #f97316;
+    --battery-ok-color: #22c55e;
+    --battery-low-color: #ef4444;
+    --label-bg-opacity: 0.95;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-color: #0f172a;
+        --card-bg: #1e293b;
+        --text-color: #f8fafc;
+        --label-bg-opacity: 0.1;
+    }
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 4rem;
+    padding: 0 2rem;
+    background: var(--bg-color);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    z-index: 100;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 600;
+}
+
+header .weather_updated_at {
+    font-size: 0.875rem;
+    opacity: 0.7;
+    font-weight: 500;
+    padding: 0.5rem 1rem;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 1rem;
+}
+
+body {
+    font-family: system-ui, -apple-system, sans-serif;
+    background: var(--bg-color);
+    color: var(--text-color);
+    margin: 0;
+    padding: 6rem 2rem 2rem;
+}
+
+.container {
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(var(--card-width), 1fr));
+    gap: 2rem;
+}
+
+.card {
+    background: var(--card-bg);
+    border-radius: 1rem;
+    padding: 1.5rem;
+    box-shadow: 0 8px 16px -2px rgba(0, 0, 0, 0.15);
+}
+
+.metrics-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+    width: 100%;
+    margin-left: -0.5rem;
+}
+
+.metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+    background: rgba(0, 0, 0, 0.03);
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    box-shadow: none;
+}
+
+.group-title {
+    font-size: 1.75rem;
+    margin: 0 0 1.5rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 3px solid currentColor;
+    opacity: 0.9;
+}
+
+.metrics-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 100%;
+}
+
+.metric {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem;
+}
+
+.metric-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 0;
+}
+
+.metric-label {
+    font-size: 1rem;
+    font-weight: 600;
+    opacity: 0.8;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 0;
+}
+
+.metric-value {
+    font-size: 2rem;
+    font-weight: 700;
+    line-height: 1;
+    display: flex;
+    align-items: baseline;
+    gap: 0.25rem;
+    margin: 0;
+}
+
+.metric-value .unit {
+    font-size: 1rem;
+    opacity: 0.7;
+}
+
+.sparkline {
+    margin: 0;
+    width: 100%;
+    height: auto;
+    min-height: 50px;
+}
+
+.temperature-group .value {
+    color: var(--temperature-color);
+}
+
+.temperature-group .sparkline polyline {
+    stroke: var(--temperature-color);
+}
+
+.humidity-group .value {
+    color: var(--humidity-color);
+}
+
+.humidity-group .sparkline polyline {
+    stroke: var(--humidity-color);
+}
+
+.wind-group .value {
+    color: var(--wind-color);
+}
+
+.wind-group .sparkline polyline {
+    stroke: var(--wind-color);
+}
+
+.pressure-group .value {
+    color: var(--pressure-color);
+}
+
+.pressure-group .sparkline polyline {
+    stroke: var(--pressure-color);
+}
+
+.rain-group .value {
+    color: var(--rain-color);
+}
+
+.rain-group .sparkline polyline {
+    stroke: var(--rain-color);
+}
+
+.sun-group .value {
+    color: var(--sun-color);
+}
+
+.sun-group .sparkline polyline {
+    stroke: var(--sun-color);
+}
+
+.status-indicators {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.battery-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+}
+
+.battery-icon path,
+.battery-icon rect {
+    stroke: currentColor;
+    stroke-width: 2;
+}
+
+.battery-icon.battery-ok {
+    color: var(--battery-ok-color);
+}
+
+.battery-icon.battery-ok rect {
+    fill: var(--battery-ok-color);
+}
+
+.battery-icon.battery-low {
+    color: var(--battery-low-color);
+}
+
+.battery-icon.battery-low rect {
+    fill: var(--battery-low-color);
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --bg-color: #0f172a;
+        --card-bg: #1e293b;
+        --text-color: #f8fafc;
+        --label-bg-opacity: 0.1;
+    }
+
+    .metric {
+        background: rgba(255, 255, 255, 0.03);
+    }
+
+    header {
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+    }
+
+    header .weather_updated_at {
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .battery-icon.battery-ok {
+        opacity: 0.9;
+    }
+
+    .battery-icon.battery-low {
+        opacity: 0.9;
+    }
+}
+
+@media (max-width: 1200px) {
+    :root {
+        --card-width: 350px;
+    }
+}
+
+@media (max-width: 640px) {
+    :root {
+        --card-width: 100%;
+        --column-count: 1;
+    }
+
+    body {
+        padding: 5rem 1rem 1rem;
+    }
+
+    .metrics-grid {
+        grid-template-columns: 1fr;
+    }
+
+    header {
+        padding: 0 1rem;
+    }
+}

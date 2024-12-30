@@ -1,0 +1,6 @@
+automations: python automations.py
+logger: python logger-agent.py
+mastodon: python mastodon-agent.py
+telegram: python telegram-agent.py
+file_server: python file-server-agent.py
+ambient_weather: python ambient-weather/agent.py

@@ -1,0 +1,8 @@
+aiofiles
+aiogram
+aiosqlite
+arrow
+python-dotenv
+httpx
+mastodon.py
+quart
