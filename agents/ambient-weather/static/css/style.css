@@ -271,11 +271,6 @@ body {
     }
 }
 
-@media (max-width: 1200px) {
-    :root {
-        --card-width: 350px;
-    }
-}
 
 @media (max-width: 640px) {
     :root {
